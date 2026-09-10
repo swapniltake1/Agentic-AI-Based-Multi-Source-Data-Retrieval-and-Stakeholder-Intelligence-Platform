@@ -7,6 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "google-api-core>=2.36.0",
     "langchain-google-genai>=4.4.0",
+    "psycopg2-binary>=2.9.13",
     "pydantic>=2.13.5",
     "python-dotenv>=1.2.3",
 ]

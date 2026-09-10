@@ -1,9 +1,13 @@
-from pydantic import BaseModel, Field
-from typing import Annotated, Literal
 from operator import add
+from typing import Annotated, Literal
+
+from pydantic import BaseModel, Field
 
 class AgentSchema(BaseModel):
-    messages : Annotated[list,add] = (..., description="List of messages exchanged with the agent.")
+    messages: Annotated[list, add] = Field(
+        default_factory=list,
+        description="List of messages exchanged with the agent.",
+    )
     user_question : str = Field(..., description="The original question asked by the user.")
     curated_ques : str = Field(..., description="Curated user questions for the agent.")
     prompt_query_context : str = Field(..., description="A detailed prompt with sql db context that will help ai agent to generate sql query.")
@@ -12,4 +16,7 @@ class AgentSchema(BaseModel):
     sql_query_execution_result : str = Field(..., description="The result of executing the generated SQL query.")
     final_answer : str = Field(..., description="The final answer provided by the agent after processing the SQL query execution result.")
 
-    
+
+class JudgeSchema(BaseModel):
+    answer : Literal["Yes", "No"] = Field(..., description="it indicates whether the generated SQL query is safe to execute or not.")
+    comments : str = Field(..., description="Comments or feedback provided by the judge regarding the safety of the SQL query.")
