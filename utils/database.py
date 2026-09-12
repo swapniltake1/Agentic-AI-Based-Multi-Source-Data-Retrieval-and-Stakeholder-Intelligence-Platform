@@ -72,6 +72,28 @@ class DatabaseUtil:
             self.connection.close()
 
 
+    def execute_sql_query(self, query):
+        try:
+            connection = psycopg2.connect(**self.db_config)
+            cursor = connection.cursor()
+            cursor.execute(query)
+            if cursor.description:
+                result = cursor.fetchall()
+                connection.commit()
+                return str(result)
+            else:
+                return None 
+        except Exception as e:
+            print(f"Error executing SQL query: {e}")
+            return None
+        
+        finally:
+            if 'cursor' in locals() and not cursor.closed:
+                        cursor.close()
+            if 'connection' in locals() and not connection.closed:
+                connection.close()
+            
+
 #def main():
 #    database = DatabaseUtil(DB_CONFIG)
 #    try:

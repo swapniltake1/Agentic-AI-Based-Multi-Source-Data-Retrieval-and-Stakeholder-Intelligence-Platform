@@ -8,12 +8,10 @@ from dotenv import load_dotenv
 
 from google.api_core.exceptions import (
     ResourceExhausted,
-    TooManyRequests,
     ServiceUnavailable,
+    TooManyRequests,
 )
-
 from google.genai.errors import ServerError
-
 from langchain_core.messages import BaseMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -33,13 +31,12 @@ logger = logging.getLogger(__name__)
 
 
 # -------------------------------------------------------------------
-# Suppress non-critical LangChain Google GenAI warnings
+# Suppress only the specific non-critical LangChain Google warning
 # -------------------------------------------------------------------
 
 warnings.filterwarnings(
     "ignore",
-    category=UserWarning,
-    module="langchain_google_genai",
+    message=".*Direct use of automatic function calling.*",
 )
 
 
@@ -69,9 +66,7 @@ MODEL_CONFIG: dict[ModelTier, dict[str, Any]] = {
         "model": "gemini-3.6-flash",
     },
 
-    # Use the same stable Flash model for now.
-    # This avoids depending on a Pro model that may not
-    # be available on the current account/free tier.
+    # High tier
     ModelTier.HIGH: {
         "model": "gemini-3.6-flash",
     },
@@ -93,21 +88,20 @@ def _resolve_api_key() -> str:
     gemini_key = os.getenv("GEMINI_API_KEY")
     google_key = os.getenv("GOOGLE_API_KEY")
 
-    if gemini_key and google_key:
+    if gemini_key:
+        return gemini_key
+
+    if google_key:
         logger.warning(
-            "Both GEMINI_API_KEY and GOOGLE_API_KEY are set. "
-            "Using GEMINI_API_KEY."
+            "GEMINI_API_KEY is not set. "
+            "Falling back to GOOGLE_API_KEY."
         )
+        return google_key
 
-    api_key = gemini_key or google_key
-
-    if not api_key:
-        raise OSError(
-            "No Gemini API key found. "
-            "Set GEMINI_API_KEY in your .env file."
-        )
-
-    return api_key
+    raise OSError(
+        "No Gemini API key found.\n"
+        "Please set GEMINI_API_KEY in your .env file."
+    )
 
 
 # -------------------------------------------------------------------
@@ -122,21 +116,34 @@ def pick_llm(
     """
     Create a Gemini LLM based on the requested model tier.
 
+    IMPORTANT:
+        Structured output MUST be applied before retry wrapping.
+
+    Correct order:
+
+        ChatGoogleGenerativeAI
+                ↓
+        with_structured_output()
+                ↓
+        with_retry()
+                ↓
+        RunnableRetry
+
     Args:
         level:
             Model tier:
-            - low
-            - medium
-            - high
+                - low
+                - medium
+                - high
 
         stop_after_attempt:
-            Maximum retry attempts for temporary API failures.
+            Maximum number of retry attempts for temporary failures.
 
         output_schema:
-            Optional structured output schema.
+            Optional Pydantic schema for structured output.
 
     Returns:
-        LangChain Runnable configured with retry handling.
+        LangChain Runnable.
     """
 
     # ---------------------------------------------------------------
@@ -144,12 +151,10 @@ def pick_llm(
     # ---------------------------------------------------------------
 
     if isinstance(level, str):
-
         try:
             level = ModelTier(level.lower().strip())
 
         except ValueError:
-
             valid = [tier.value for tier in ModelTier]
 
             raise ValueError(
@@ -157,13 +162,11 @@ def pick_llm(
                 f"Supported options: {valid}"
             )
 
-
     # ---------------------------------------------------------------
     # Get model configuration
     # ---------------------------------------------------------------
 
     config = MODEL_CONFIG[level].copy()
-
 
     # ---------------------------------------------------------------
     # Resolve API key
@@ -171,24 +174,20 @@ def pick_llm(
 
     api_key = _resolve_api_key()
 
-
     # ---------------------------------------------------------------
     # Create base Gemini model
     # ---------------------------------------------------------------
 
     base_llm = ChatGoogleGenerativeAI(
         api_key=api_key,
-
-        # Disable LangChain internal retries.
-        # We handle retries below.
         max_retries=0,
-
         **config,
     )
 
-
     # ---------------------------------------------------------------
-    # Structured output
+    # IMPORTANT:
+    #
+    # Structured output must be applied BEFORE with_retry().
     # ---------------------------------------------------------------
 
     if output_schema is not None:
@@ -201,22 +200,18 @@ def pick_llm(
 
         runnable = base_llm
 
-
     # ---------------------------------------------------------------
-    # Retry temporary failures
+    # Apply retry LAST
     # ---------------------------------------------------------------
 
     return runnable.with_retry(
-
         retry_if_exception_type=(
-            ResourceExhausted,     # 429 / quota
-            TooManyRequests,       # 429
-            ServiceUnavailable,   # 503
-            ServerError,           # Gemini server error
+            ResourceExhausted,
+            TooManyRequests,
+            ServiceUnavailable,
+            ServerError,
         ),
-
         stop_after_attempt=stop_after_attempt,
-
         wait_exponential_jitter=True,
     )
 
@@ -225,19 +220,25 @@ def pick_llm(
 # Extract Response Content
 # -------------------------------------------------------------------
 
-def extract_content(response: BaseMessage) -> str:
+def extract_content(
+    response: BaseMessage | str | list | Any
+) -> str:
     """
-    Safely extract text from a LangChain BaseMessage.
+    Safely extract text from a LangChain response.
 
     Handles:
-    - Plain string content
-    - List of dictionaries
-    - List of strings
-    - Other response formats
+        - BaseMessage
+        - Plain string
+        - List of dictionaries
+        - List of strings
+        - Other response formats
     """
 
-    content = response.content
+    # ---------------------------------------------------------------
+    # Get content
+    # ---------------------------------------------------------------
 
+    content = getattr(response, "content", response)
 
     # ---------------------------------------------------------------
     # Normal string response
@@ -245,7 +246,6 @@ def extract_content(response: BaseMessage) -> str:
 
     if isinstance(content, str):
         return content
-
 
     # ---------------------------------------------------------------
     # List-based response
@@ -269,7 +269,6 @@ def extract_content(response: BaseMessage) -> str:
                 text_parts.append(part)
 
         return "".join(text_parts)
-
 
     # ---------------------------------------------------------------
     # Fallback

@@ -8,7 +8,7 @@ from utils.llm_pick import pick_llm
 
 llm_judge = pick_llm("medium", output_schema=JudgeSchema)
 
-sql_query = "SELECT * FROM users; DROP TABLE users;"
+sql_query = "SELECT * FROM users;"
 
 judge_prompt = f"""
 You are an SQL Judge Agent. Your task is to determine whether a generated
@@ -95,5 +95,6 @@ Generated SQL Query:
 Determine whether the generated SQL query is safe to execute.
 """
 
+response = llm_judge.invoke(judge_prompt).model_dump() 
 
-print(llm_judge.invoke(judge_prompt))
+print(response)
