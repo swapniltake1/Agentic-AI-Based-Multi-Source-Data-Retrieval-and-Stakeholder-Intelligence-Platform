@@ -8,7 +8,9 @@ dependencies = [
     "google-api-core>=2.36.0",
     "ipython>=9.17.1",
     "langchain-google-genai>=4.4.0",
+    "pandas>=3.0.5",
     "psycopg2-binary>=2.9.13",
     "pydantic>=2.13.5",
     "python-dotenv>=1.2.3",
+    "requests>=2.32.3",
 ]
