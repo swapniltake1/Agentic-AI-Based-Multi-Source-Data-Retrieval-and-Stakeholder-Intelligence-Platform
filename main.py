@@ -1,5 +1,5 @@
 def main():
-    print("Hello from agentic-ai-based-multi-source-data-retrieval-and-stakeholder-intelligence-platform!")
+    print("Hello")
 
 
 if __name__ == "__main__":

@@ -34,6 +34,35 @@ class ETLTools:
 
         return [payload]
 
+    @staticmethod
+    def resolve_input_file(file_path: str) -> Path:
+        path = Path(file_path)
+        project_root = Path(__file__).resolve().parent.parent
+
+        if not path.is_absolute():
+            path = project_root / path
+
+        search_folder = path if path.is_dir() else path.parent
+
+        supported_extensions = {".csv", ".json", ".parquet"}
+        input_files = sorted(
+            (
+                candidate
+                for candidate in search_folder.iterdir()
+                if candidate.is_file()
+                and candidate.suffix.lower() in supported_extensions
+            ),
+            key=lambda candidate: candidate.stat().st_mtime,
+            reverse=True,
+        )
+
+        if not input_files:
+            raise FileNotFoundError(
+                f"No supported input file found for '{file_path}'"
+            )
+
+        return input_files[0]
+
     def extract_load(self, url: str, output_folder: str, format: str):
         """
         Extract data from an API endpoint and save it into the desired output folder.
@@ -78,13 +107,67 @@ class ETLTools:
         except requests.exceptions.RequestException as e:
             return f"Failed to extract data: {e}"
 
+    def transform_load_context(
+        self,
+        file_path: str,
+        output_folder: str | None = None,
+        output_format: str | None = None,
+    ):
+        """
+        this tool trasform the data from the specified file and loads it into the desired location ( output_folder).
+
+        args: 
+        filepath (str): the path to the file containing the data to be transformed.
+        output_folder (str): the folder where the transformed data will be saved.
+
+        returns:
+        str: a message indicating the success or failure of the operation.
+        
+        """
+
+        try:
+            file_path = self.resolve_input_file(file_path)
+        except FileNotFoundError as error:
+            return str(error)
+
+        file_extension = file_path.suffix.lower()
+
+        if file_extension == ".csv":
+           df = pd.read_csv(file_path)
+        elif file_extension == ".json":
+           df = pd.read_json(file_path, lines=True)
+        elif file_extension ==  ".parquet":
+           df = pd.read_parquet(file_path)
+        else:
+          return f"unsupported file format: {file_extension}"
 
 
+        top_3_rows = str(df.head(3))
 
+        return top_3_rows
+
+
+    def execute_code(self, code:str):
+        """
+        this tool run the code is provided and return output.
+        """
+
+        try:
+            exec(code)
+            return "code executed successfully."
+
+        except Exception as e:
+            return f"Failed to execute the provided code: {e}"
+
+    
 
 if __name__ == "__main__":
     obj = ETLTools()
-    print(obj.extract_load("https://pokeapi.co/api/v2/pokemon/1/", "data/extract", "csv"))
+    #print(obj.extract_load("https://pokeapi.co/api/v2/pokemon/", "data/extract", "csv"))
+
+    path = r"D:\agentic ai\Agentic AI-Based Multi-Source Data Retrieval and Stakeholder Intelligence Platform\data\extract\extract_20260913183547.csv"
+
+    print(obj.transform_load_context(path))
 
 
 
