@@ -15,6 +15,7 @@ This project is designed to help users ask business questions in plain English a
 The current repository includes:
 
 - agent logic for SQL generation and safety review,
+- an ETL agent with extraction, transformation, and loading tools,
 - PostgreSQL database setup and CSV ingestion scripts,
 - a schema model used for agent state tracking,
 - Gemini-based model selection and API configuration.
@@ -26,20 +27,46 @@ The current repository includes:
 - LLM judge layer to assess query safety
 - PostgreSQL schema introspection and sample data extraction
 - CSV-driven database population for a rides, payments, ratings, users, and vehicles dataset
+- API extraction and Pandas-based transformation tools for ETL workflows
 - Structured Pydantic agent state models for orchestration
 
 ## Architecture
 
 The project is organized into a few focused modules:
 
-- [main.py](main.py): current entry point; currently a simple starter script.
-- [agents/sql_analyst.py](agents/sql_analyst.py): contains the main SQL analyst workflow, question curation, prompt generation, SQL validation, and execution flow.
-- [agents/etl_analyst.py](agents/etl_analyst.py): reserved for ETL-oriented logic and downstream data processing tasks.
+- [main.py](main.py): current starter entry point; the individual agent graphs are currently run from their own modules.
+- [agents/sql_analyst.py](agents/sql_analyst.py): SQL analyst LangGraph workflow for question curation, schema-aware SQL generation, safety validation, execution, and answer generation.
+- [agents/etl_analyst.py](agents/etl_analyst.py): ETL analyst LangGraph workflow that selects extraction and transformation tools based on the user's request.
 - [utils/database.py](utils/database.py): PostgreSQL connection utilities and schema inspection helpers.
 - [utils/feed_db.py](utils/feed_db.py): creates the PostgreSQL schema and loads CSV files into the database.
 - [utils/llm_pick.py](utils/llm_pick.py): selects the Gemini LLM model tier and resolves API credentials.
 - [models/schema.py](models/schema.py): Pydantic schemas for agent state and validation.
 - [data/](data/): source CSV files used to populate the database.
+
+### Current SQL Analyst Graph
+
+The SQL analyst follows a guarded read-only workflow. Unsafe queries are canceled; approved queries are executed and summarized from their database results.
+
+![SQL analyst graph](sql_analyst_graph.png)
+
+The generated graph is also available as [sql_analyst_graph.png](sql_analyst_graph.png). The ETL graph is generated as [etl_analyst_graph.png](etl_analyst_graph.png) when the ETL module's graph visualization block is run.
+
+### Planned Parent Agent
+
+The next orchestration layer will be a parent agent responsible for deciding which specialist workflow should run:
+
+```text
+User question
+	|
+	v
+Parent agent / router
+	|
+	+--> SQL analyst agent --> safe SQL execution --> answer
+	|
+	+--> ETL analyst agent --> extract/transform/load --> result
+```
+
+The parent agent is planned work and is not wired into `main.py` yet. It will provide the single entry point for routing stakeholder questions to the SQL or ETL specialist while preserving each specialist's existing safety and tool boundaries.
 
 ## Data Model
 
@@ -149,23 +176,42 @@ This script will:
 
 ## Running the Project
 
-The current repository is still in an early stage, so the main runtime entry point is minimal. To launch the current starter entry point:
+The top-level runtime entry point is still minimal:
 
 ```bash
 python main.py
 ```
 
-The real workflow logic for structured agent-based SQL analysis is primarily contained in the scripts under [agents/](agents/), especially [agents/sql_analyst.py](agents/sql_analyst.py).
+To run the SQL analyst graph directly, configure PostgreSQL and the Gemini API key first, then run:
+
+```bash
+python agents/sql_analyst.py
+```
+
+To run the ETL analyst graph directly:
+
+```bash
+python agents/etl_analyst.py
+```
+
+Both agent modules currently include executable examples under their `__main__` blocks. They also generate LangGraph PNG visualizations when the optional visualization code runs.
 
 ## How the Agent Workflow Works
 
 1. A user asks a business question in natural language.
 2. The SQL analyst agent curates and clarifies that question.
-3. A prompt is built using schema metadata from PostgreSQL.
-4. An LLM generates a candidate SQL query.
+3. A prompt is built using schema metadata and sample data from PostgreSQL.
+4. An LLM generates one candidate SQL query.
 5. A deterministic safety layer blocks dangerous operations such as `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, and other non-read-only actions.
-6. The query is reviewed by a judge agent before execution.
-7. Approved queries run against PostgreSQL and the final answer is produced.
+6. A structured LLM judge reviews queries that pass the deterministic checks.
+7. Approved queries are checked again immediately before execution, run against PostgreSQL, and summarized into the final answer.
+
+The ETL analyst uses a separate tool-calling graph:
+
+1. The LLM receives the user's ETL request and conversation state.
+2. It selects the extraction or transformation tool when needed.
+3. The tool result is returned to the LLM for the next step.
+4. The graph ends after the requested operation is completed.
 
 ## Security Notes
 
@@ -182,9 +228,10 @@ This is a useful pattern for building safe LLM-powered database analytics system
 
 ## Current Status
 
-This is a functional starter project with core database and agent infrastructure, but it still requires integration work depending on your end-user workflow. In particular:
+This is a functional starter project with core database and specialist-agent infrastructure, but it still requires integration work depending on your end-user workflow. In particular:
 
 - the app entry point is still minimal,
+- the SQL and ETL agents are implemented independently but are not yet routed through a parent agent,
 - the agent logic is modular but not yet fully exposed through a user-facing interface,
 - the database connection depends on an existing PostgreSQL instance and `.env` configuration.
 
@@ -197,6 +244,7 @@ This project does not currently include a license file. If you plan to share or 
 If you want to extend this project further, the most valuable next steps are:
 
 - add a command-line application or web interface,
+- add the parent agent that routes each request to the SQL or ETL analyst,
 - expose the SQL analyst as an end-to-end API,
 - create a proper dashboard or stakeholder reporting layer,
 - expand the ETL pipeline and analytics agents,
