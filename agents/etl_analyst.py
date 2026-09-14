@@ -1,4 +1,3 @@
-from email import message
 import os
 import sys
 
@@ -171,7 +170,7 @@ etl_analyst_graph.add_conditional_edges(
 
 etl_analyst_graph.add_edge("tool_node", "llm_node")
 
-
+etl_analyst = etl_analyst_graph.compile()
 
 # TEST CODE
 if __name__ == "__main__":
@@ -182,7 +181,7 @@ if __name__ == "__main__":
 
     
     # Compile
-    etl_analyst = etl_analyst_graph.compile()
+    
 
     # Optional graph visualization
     from IPython.display import display, Image, HTML
