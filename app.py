@@ -1,8 +1,17 @@
 import streamlit as st
+
+from logging_config import setup_logging
+
+setup_logging()
+
 from langchain_core.messages import HumanMessage
 
 from agents.data_agent import data_agent
-from utils.llm_pick import get_base_llm, MODEL_CONFIG, ModelTier
+from utils.llm_pick import (
+    get_base_llm,
+    MODEL_CONFIG,
+    ModelTier,
+)
 
 
 # ============================================================
