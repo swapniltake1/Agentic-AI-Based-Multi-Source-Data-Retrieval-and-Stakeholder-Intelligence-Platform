@@ -205,7 +205,7 @@ def curate_question(state: AgentSchema) -> AgentSchema:
 
     user_question = state.user_question
 
-    llm = pick_llm("low")
+    llm = pick_llm("high")
 
     response = llm.invoke(
         f"""
@@ -318,7 +318,7 @@ def generate_sql(state: AgentSchema) -> AgentSchema:
 
     prompt = state.prompt_query_context
 
-    llm = pick_llm("medium")
+    llm = pick_llm("high")
 
     response = llm.invoke(prompt)
 
@@ -384,7 +384,7 @@ def is_safe_sql(state: AgentSchema) -> AgentSchema:
     # ---------------------------------------------------------------
 
     llm_judge = pick_llm(
-        "low",
+        "high",
         output_schema=JudgeSchema,
     )
 
@@ -576,7 +576,7 @@ def final_answer(state: AgentSchema) -> AgentSchema:
 
     curated_question = state.curated_ques
 
-    llm = pick_llm("low")
+    llm = pick_llm("high")
 
     prompt = f"""
 You are an SQL analyst agent.
@@ -734,6 +734,7 @@ sql_agent_graph.add_edge(
     END
 )
 
+sql_analyst = sql_agent_graph.compile()
 
 # ===================================================================
 # Main
@@ -745,7 +746,7 @@ if __name__ == "__main__":
     # Compile graph
     # ---------------------------------------------------------------
 
-    sql_analyst = sql_agent_graph.compile()
+    
 
     # ---------------------------------------------------------------
     # Optional graph visualization

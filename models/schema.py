@@ -1,3 +1,4 @@
+from dataclasses import field
 from operator import add
 from typing import Annotated, Literal
 
@@ -27,3 +28,11 @@ class JudgeSchema(BaseModel):
 class ETLAgentSchema(BaseModel):
     messages : Annotated[list, add] = Field(..., description="List of messages to be processed by ETL agent")
     #user_question : str = Field(..., description="The original question asked by the user")
+
+class RouterSchema(BaseModel):
+    answer: Literal["sql", "etl"] = Field(..., description="indicate whether the user's question is related to sql or etl operations")
+    comments: str= Field(..., description="addtional comment or feedback regarding the classification of the user question")
+
+class DataAgentSchema(BaseModel):
+    messages : Annotated[list, add] = Field(..., description="List of messages to be processed by the data data agent")
+    route_response : str = Field(..., description="Response from the agent router indicating whether to route to sql or etl" )
