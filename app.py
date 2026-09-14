@@ -86,6 +86,25 @@ div[data-testid="stChatInput"] {
 )
 
 
+st.markdown(
+    """
+    <style>
+
+    /* Keep the Streamlit toolbar and 3-dot menu visible */
+    div[data-testid="stToolbar"] {
+        visibility: visible;
+    }
+
+    /* Hide Deploy text/button */
+    button[title="Deploy"] {
+        display: none;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ============================================================
 # SESSION STATE
 # ============================================================
@@ -199,41 +218,12 @@ with st.sidebar:
     st.divider()
 
 
-    # --------------------------------------------------------
-    # Capabilities
-    # --------------------------------------------------------
-
-    st.subheader("Capabilities")
-
-    st.markdown(
-        """
-        **🗄️ SQL Analysis**
-
-        Ask natural-language questions about your database.
-
-        **🔄 ETL Operations**
-
-        Extract, transform and load data from APIs and files.
-
-        **🧠 Intelligent Routing**
-
-        Automatically routes requests to the appropriate agent.
-        """
-    )
-
-
-    st.divider()
-
 
  # ============================================================
 # MODEL STATUS
 # ============================================================
 
     st.subheader("Model Status")
-
-    st.caption(
-        "Gemini models configured in your application"
-    )
 
     model_order = [
         ModelTier.HIGH,
@@ -354,44 +344,6 @@ with st.sidebar:
 
         st.rerun()
 
-
-    st.divider()
-
-
-    # --------------------------------------------------------
-    # Examples
-    # --------------------------------------------------------
-
-    st.subheader("Example Questions")
-
-    st.markdown(
-        """
-        **SQL**
-
-        • What payment methods do we have?
-
-        • Show the top 10 users.
-
-        • What is the average ride distance?
-
-        **ETL**
-
-        • Extract data from an API.
-
-        • Save API data as CSV.
-
-        • Transform my CSV data.
-        """
-    )
-
-
-    st.divider()
-
-    st.caption(
-        "Data Intelligence Platform"
-    )
-
-
 # ============================================================
 # TOP HEADER
 # ============================================================
@@ -415,12 +367,8 @@ with header_col1:
 with header_col2:
 
     st.success(
-        "● Ready",
-        icon="🤖",
+        "● Ready"
     )
-
-
-st.divider()
 
 
 # ============================================================
@@ -465,7 +413,7 @@ if len(st.session_state.chat_history) == 0:
             border=True,
         ):
 
-            st.markdown("### 🗄️ SQL Analysis")
+            st.markdown("### 🗄️ Data Analysis")
 
             st.write(
                 "Ask natural-language questions about "

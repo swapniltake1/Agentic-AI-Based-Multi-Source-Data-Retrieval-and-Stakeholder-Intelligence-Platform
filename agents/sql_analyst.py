@@ -205,7 +205,7 @@ def curate_question(state: AgentSchema) -> AgentSchema:
 
     user_question = state.user_question
 
-    llm = pick_llm("high")
+    llm = pick_llm("medium")
 
     response = llm.invoke(
         f"""

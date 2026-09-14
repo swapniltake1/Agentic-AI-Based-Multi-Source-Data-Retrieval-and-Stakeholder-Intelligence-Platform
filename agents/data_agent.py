@@ -22,7 +22,7 @@ from agents.sql_analyst import sql_analyst
 # Parent Agent
 # ============================================================
 
-llm = get_base_llm("high")
+llm = get_base_llm("medium")
 
 agent_router = llm.with_structured_output(RouterSchema)
 

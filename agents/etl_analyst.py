@@ -65,7 +65,7 @@ def transform_load_tool(input_file_path:str, output_folder:str, output_format:st
         output_format,
     )
 
-    llm = pick_llm("high")
+    llm = pick_llm("medium")
 
     prompt = f"""
     You are a Python Data Analyst who uses Pandas to analyze data.
@@ -99,7 +99,7 @@ def transform_load_tool(input_file_path:str, output_folder:str, output_format:st
 
 tools = [extract_load_tool, transform_load_tool]
 
-llm_bind = get_tool_llm("high", tools)
+llm_bind = get_tool_llm("medium", tools)
 
 
 
