@@ -2,188 +2,799 @@ import streamlit as st
 from langchain_core.messages import HumanMessage
 
 from agents.data_agent import data_agent
+from utils.llm_pick import get_base_llm, MODEL_CONFIG, ModelTier
 
+
+# ============================================================
+# PAGE CONFIG
+# ============================================================
 
 st.set_page_config(
     page_title="Data Intelligence Agent",
     page_icon="🤖",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
 
-# ---------------------------------------------------------
-# Session state
-# ---------------------------------------------------------
-
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-
-# ---------------------------------------------------------
-# Styling
-# ---------------------------------------------------------
+# ============================================================
+# CUSTOM CSS
+# ============================================================
 
 st.markdown(
     """
-    <style>
+<style>
 
-    .main {
-        padding-top: 1rem;
-    }
+.block-container {
+    max-width: 1200px;
+    padding-top: 1.5rem;
+    padding-bottom: 2rem;
+}
 
-    .app-title {
-        text-align: center;
-        font-size: 2rem;
-        font-weight: 700;
-        margin-bottom: 0.25rem;
-    }
+/* Sidebar */
 
-    .app-subtitle {
-        text-align: center;
-        color: #777;
-        margin-bottom: 2rem;
-    }
+section[data-testid="stSidebar"] {
+    border-right: 1px solid #e5e7eb;
+}
 
-    </style>
-    """,
+/* Buttons */
+
+.stButton > button {
+    border-radius: 10px;
+}
+
+/* Chat input */
+
+div[data-testid="stChatInput"] {
+    border-radius: 14px;
+}
+
+/* Status badges */
+
+.status-online {
+    color: #16a34a;
+    font-weight: 600;
+}
+
+.status-error {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+.status-testing {
+    color: #d97706;
+    font-weight: 600;
+}
+
+.status-not-tested {
+    color: #9ca3af;
+    font-weight: 600;
+}
+
+/* Footer */
+
+.footer-text {
+    text-align: center;
+    color: #9ca3af;
+    font-size: 12px;
+    margin-top: 25px;
+}
+
+</style>
+""",
     unsafe_allow_html=True,
 )
 
 
-# ---------------------------------------------------------
-# Header
-# ---------------------------------------------------------
+# ============================================================
+# SESSION STATE
+# ============================================================
 
-st.markdown(
-    '<div class="app-title"> Data Intelligence Agent</div>',
-    unsafe_allow_html=True,
-)
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-st.markdown(
-    '<div class="app-subtitle">'
-    'Ask questions about your data, databases, APIs, or ETL operations.'
-    '</div>',
-    unsafe_allow_html=True,
-)
+if "model_status" not in st.session_state:
+    st.session_state.model_status = {
+        ModelTier.HIGH.value: "not_tested",
+        ModelTier.MEDIUM.value: "not_tested",
+        ModelTier.LOW.value: "not_tested",
+    }
+
+if "model_errors" not in st.session_state:
+    st.session_state.model_errors = {}
+
+if "run_model_tests" not in st.session_state:
+    st.session_state.run_model_tests = False
 
 
-# ---------------------------------------------------------
-# Sidebar
-# ---------------------------------------------------------
+# ============================================================
+# MODEL TEST
+# ============================================================
+
+def test_model(tier: ModelTier):
+
+    model_name = MODEL_CONFIG[tier]["model"]
+
+    try:
+
+        llm = get_base_llm(tier)
+
+        response = llm.invoke(
+            "Reply with exactly: MODEL_TEST_OK"
+        )
+
+        content = getattr(
+            response,
+            "content",
+            "",
+        )
+
+        if content:
+
+            st.session_state.model_status[
+                tier.value
+            ] = "online"
+
+            st.session_state.model_errors.pop(
+                tier.value,
+                None,
+            )
+
+            return True
+
+        st.session_state.model_status[
+            tier.value
+        ] = "error"
+
+        st.session_state.model_errors[
+            tier.value
+        ] = "Empty response"
+
+        return False
+
+    except Exception as e:
+
+        st.session_state.model_status[
+            tier.value
+        ] = "error"
+
+        st.session_state.model_errors[
+            tier.value
+        ] = str(e)
+
+        return False
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
 
 with st.sidebar:
 
-    st.title("Data Agent")
+    # --------------------------------------------------------
+    # Application title
+    # --------------------------------------------------------
 
-    st.write(
-        """
-        This agent can route your request to:
+    st.title("🤖 Data Agent")
 
-        **SQL Analyst**
-        - Query database data
-        - Generate SQL
-        - Analyze results
-
-        **ETL Analyst**
-        - Extract data
-        - Transform data
-        - Load transformed data
-        """
+    st.caption(
+        "Multi-source data intelligence platform"
     )
 
-    if st.button("🗑 Clear Chat", use_container_width=True):
-        st.session_state.messages = []
+
+    # --------------------------------------------------------
+    # New chat
+    # --------------------------------------------------------
+
+    if st.button(
+        "＋ New Chat",
+        use_container_width=True,
+    ):
+
+        st.session_state.chat_history = []
+
         st.rerun()
 
 
-# ---------------------------------------------------------
-# Display previous messages
-# ---------------------------------------------------------
-
-for message in st.session_state.messages:
-
-    role = message["role"]
-    content = message["content"]
-
-    with st.chat_message(role):
-        st.markdown(content)
+    st.divider()
 
 
-# ---------------------------------------------------------
-# Chat input
-# ---------------------------------------------------------
+    # --------------------------------------------------------
+    # Capabilities
+    # --------------------------------------------------------
 
-user_input = st.chat_input("Message your data agent...")
+    st.subheader("Capabilities")
 
+    st.markdown(
+        """
+        **🗄️ SQL Analysis**
+
+        Ask natural-language questions about your database.
+
+        **🔄 ETL Operations**
+
+        Extract, transform and load data from APIs and files.
+
+        **🧠 Intelligent Routing**
+
+        Automatically routes requests to the appropriate agent.
+        """
+    )
+
+
+    st.divider()
+
+
+ # ============================================================
+# MODEL STATUS
+# ============================================================
+
+    st.subheader("Model Status")
+
+    st.caption(
+        "Gemini models configured in your application"
+    )
+
+    model_order = [
+        ModelTier.HIGH,
+        ModelTier.MEDIUM,
+        ModelTier.LOW,
+    ]
+
+    for tier in model_order:
+
+        model_name = MODEL_CONFIG[tier]["model"]
+
+        status = st.session_state.model_status[
+            tier.value
+        ]
+
+        if status == "online":
+
+            st.success(
+                f"{model_name} — Online",
+                icon="✅",
+            )
+
+        elif status == "error":
+
+            st.error(
+                f"{model_name} — Unavailable",
+                icon="❌",
+            )
+
+        elif status == "testing":
+
+            st.warning(
+                f"{model_name} — Testing...",
+                icon="🧪",
+            )
+
+        else:
+
+            st.info(
+                f"{model_name} — Not tested",
+                icon="⚪",
+            )
+
+    # --------------------------------------------------------
+    # Test button
+    # --------------------------------------------------------
+
+    st.caption(
+        "Running this test sends one real request "
+        "to each model and consumes quota."
+    )
+
+
+    if st.button(
+        "🧪 Test All Models",
+        use_container_width=True,
+    ):
+
+        st.session_state.run_model_tests = True
+
+        for tier in model_order:
+
+            st.session_state.model_status[
+                tier.value
+            ] = "testing"
+
+        st.rerun()
+
+
+    # ========================================================
+    # EXECUTE MODEL TESTS
+    # ========================================================
+
+    if st.session_state.run_model_tests:
+
+        st.session_state.run_model_tests = False
+
+        st.divider()
+
+        st.write("Running model tests...")
+
+
+        progress = st.progress(0)
+
+
+        total_models = len(model_order)
+
+
+        for index, tier in enumerate(model_order):
+
+            model_name = MODEL_CONFIG[tier]["model"]
+
+
+            with st.spinner(
+                f"Testing {model_name}..."
+            ):
+
+                success = test_model(tier)
+
+
+            if success:
+
+                st.success(
+                    f"{model_name} is online."
+                )
+
+            else:
+
+                st.error(
+                    f"{model_name} is unavailable."
+                )
+
+
+            progress.progress(
+                (index + 1) / total_models
+            )
+
+
+        st.rerun()
+
+
+    st.divider()
+
+
+    # --------------------------------------------------------
+    # Examples
+    # --------------------------------------------------------
+
+    st.subheader("Example Questions")
+
+    st.markdown(
+        """
+        **SQL**
+
+        • What payment methods do we have?
+
+        • Show the top 10 users.
+
+        • What is the average ride distance?
+
+        **ETL**
+
+        • Extract data from an API.
+
+        • Save API data as CSV.
+
+        • Transform my CSV data.
+        """
+    )
+
+
+    st.divider()
+
+    st.caption(
+        "Data Intelligence Platform"
+    )
+
+
+# ============================================================
+# TOP HEADER
+# ============================================================
+
+header_col1, header_col2 = st.columns(
+    [4, 1]
+)
+
+
+with header_col1:
+
+    st.markdown(
+        "### Data Intelligence Agent"
+    )
+
+    st.caption(
+        "Multi-source data analysis • SQL • ETL"
+    )
+
+
+with header_col2:
+
+    st.success(
+        "● Ready",
+        icon="🤖",
+    )
+
+
+st.divider()
+
+
+# ============================================================
+# WELCOME SCREEN
+# ============================================================
+
+if len(st.session_state.chat_history) == 0:
+
+    # --------------------------------------------------------
+    # Welcome
+    # --------------------------------------------------------
+
+    st.markdown(
+        "<h1 style='text-align:center;'>Hi Swapnil 👋</h1>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        "<p style='text-align:center; color:#6b7280;'>"
+        "How can I help you with your data today?"
+        "</p>",
+        unsafe_allow_html=True,
+    )
+
+
+    st.write("")
+
+
+    # --------------------------------------------------------
+    # Capability cards
+    # --------------------------------------------------------
+
+    card1, card2 = st.columns(
+        2,
+        gap="large",
+    )
+
+
+    with card1:
+
+        with st.container(
+            border=True,
+        ):
+
+            st.markdown("### 🗄️ SQL Analysis")
+
+            st.write(
+                "Ask natural-language questions about "
+                "your PostgreSQL database."
+            )
+
+            st.caption(
+                "Generate SQL → validate → execute → answer"
+            )
+
+
+    with card2:
+
+        with st.container(
+            border=True,
+        ):
+
+            st.markdown("### 🔄 ETL Operations")
+
+            st.write(
+                "Extract data from APIs and transform "
+                "files using Pandas."
+            )
+
+            st.caption(
+                "Extract → Transform → Load"
+            )
+
+
+    st.write("")
+
+
+    # --------------------------------------------------------
+    # Suggested questions
+    # --------------------------------------------------------
+
+    st.markdown("#### Try something like")
+
+
+    suggestion1, suggestion2, suggestion3 = st.columns(
+        3
+    )
+
+
+    suggestion_clicked = None
+
+
+    with suggestion1:
+
+        if st.button(
+            "💳 Payment methods",
+            use_container_width=True,
+        ):
+
+            suggestion_clicked = (
+                "What are the different payment methods "
+                "we have in our databases?"
+            )
+
+
+    with suggestion2:
+
+        if st.button(
+            "👥 Top 10 users",
+            use_container_width=True,
+        ):
+
+            suggestion_clicked = (
+                "Show me the top 10 users by number of rides."
+            )
+
+
+    with suggestion3:
+
+        if st.button(
+            "📊 Average ride distance",
+            use_container_width=True,
+        ):
+
+            suggestion_clicked = (
+                "What is the average ride distance?"
+            )
+
+
+    if suggestion_clicked:
+
+        st.session_state.pending_question = (
+            suggestion_clicked
+        )
+
+        st.rerun()
+
+
+# ============================================================
+# CHAT HISTORY
+# ============================================================
+
+for chat in st.session_state.chat_history:
+
+    if chat["role"] == "user":
+
+        with st.chat_message(
+            "user",
+            avatar="👤",
+        ):
+
+            st.markdown(
+                chat["content"]
+            )
+
+    else:
+
+        with st.chat_message(
+            "assistant",
+            avatar="🤖",
+        ):
+
+            st.markdown(
+                chat["content"]
+            )
+
+
+# ============================================================
+# CHAT INPUT
+# ============================================================
+
+user_input = st.chat_input(
+    "Ask anything about your data..."
+)
+
+
+# ============================================================
+# SUGGESTED QUESTION
+# ============================================================
+
+if "pending_question" in st.session_state:
+
+    user_input = st.session_state.pending_question
+
+    del st.session_state.pending_question
+
+
+# ============================================================
+# PROCESS QUESTION
+# ============================================================
 
 if user_input:
 
-    # Add user message
-    st.session_state.messages.append(
+    # --------------------------------------------------------
+    # Store user question
+    # --------------------------------------------------------
+
+    st.session_state.chat_history.append(
         {
             "role": "user",
             "content": user_input,
         }
     )
 
-    with st.chat_message("user"):
-        st.markdown(user_input)
 
-    # -----------------------------------------------------
-    # Run agent
-    # -----------------------------------------------------
+    # --------------------------------------------------------
+    # Display user question
+    # --------------------------------------------------------
 
-    with st.chat_message("assistant"):
+    with st.chat_message(
+        "user",
+        avatar="👤",
+    ):
 
-        with st.spinner("Thinking..."):
+        st.markdown(
+            user_input
+        )
 
-            try:
+
+    # --------------------------------------------------------
+    # Agent
+    # --------------------------------------------------------
+
+    with st.chat_message(
+        "assistant",
+        avatar="🤖",
+    ):
+
+        try:
+
+            with st.spinner(
+                "Analyzing your request..."
+            ):
+
+                # ==========================================
+                # CALL DATA AGENT
+                # ==========================================
 
                 result = data_agent.invoke(
                     {
                         "messages": [
-                            HumanMessage(content=user_input)
+                            HumanMessage(
+                                content=user_input
+                            )
                         ],
                         "route_response": "",
                     }
                 )
 
-                # -------------------------------------------------
-                # Extract final response
-                # -------------------------------------------------
 
-                messages = result.get("messages", [])
+                # ==========================================
+                # GET ROUTE
+                # ==========================================
 
-                assistant_text = None
+                route = result.get(
+                    "route_response",
+                    "",
+                )
 
-                for msg in reversed(messages):
 
-                    if hasattr(msg, "content") and msg.content:
+                # ==========================================
+                # DISPLAY ROUTE
+                # ==========================================
 
-                        assistant_text = msg.content
-                        break
+                if route:
 
-                if assistant_text is None:
-                    assistant_text = "The agent completed the operation."
+                    if route == "sql":
 
-                st.markdown(assistant_text)
+                        st.caption(
+                            "🗄️ Routed to SQL Analyst"
+                        )
 
-                st.session_state.messages.append(
+                    elif route == "etl":
+
+                        st.caption(
+                            "🔄 Routed to ETL Analyst"
+                        )
+
+
+                # ==========================================
+                # FIND FINAL RESPONSE
+                # ==========================================
+
+                final_answer = None
+
+                messages = result.get(
+                    "messages",
+                    [],
+                )
+
+
+                for message in reversed(
+                    messages
+                ):
+
+                    if not hasattr(
+                        message,
+                        "content",
+                    ):
+
+                        continue
+
+
+                    content = message.content
+
+
+                    if not content:
+
+                        continue
+
+
+                    if getattr(
+                        message,
+                        "tool_calls",
+                        None,
+                    ):
+
+                        continue
+
+
+                    final_answer = content
+
+                    break
+
+
+                # ==========================================
+                # FALLBACK
+                # ==========================================
+
+                if not final_answer:
+
+                    final_answer = (
+                        "The agent completed "
+                        "the requested operation."
+                    )
+
+
+                # ==========================================
+                # SHOW ANSWER
+                # ==========================================
+
+                st.markdown(
+                    final_answer
+                )
+
+
+                # ==========================================
+                # SAVE
+                # ==========================================
+
+                st.session_state.chat_history.append(
                     {
                         "role": "assistant",
-                        "content": assistant_text,
+                        "content": final_answer,
                     }
                 )
 
-            except Exception as e:
 
-                error_message = f" Error: {str(e)}"
+        except Exception as e:
 
-                st.error(error_message)
+            error_message = (
+                "Something went wrong while "
+                "processing your request.\n\n"
+                f"`{str(e)}`"
+            )
 
-                st.session_state.messages.append(
-                    {
-                        "role": "assistant",
-                        "content": error_message,
-                    }
-                )
+            st.error(
+                error_message
+            )
+
+
+            st.session_state.chat_history.append(
+                {
+                    "role": "assistant",
+                    "content": error_message,
+                }
+            )
