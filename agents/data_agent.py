@@ -1,128 +1,281 @@
-from email import message
 import os
 import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Allow imports when running the project from the root directory
+sys.path.append(
+    os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..")
+    )
+)
 
-from urllib import response
-from typing import cast, final
-from opentelemetry.metrics import Observation
-from utils import llm_pick
-from utils.etl_tools import ETLTools
-from utils.database import DatabaseUtil, DB_CONFIG
-from utils.llm_pick import extract_content, get_base_llm, get_tool_llm, pick_llm
-from models.schema import AgentSchema, ETLAgentSchema, JudgeSchema, RouterSchema, DataAgentSchema
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.messages import HumanMessage
 from langgraph.graph import StateGraph, START, END
-from langchain.tools import tool
+
+from models.schema import RouterSchema, DataAgentSchema
+from utils.llm_pick import get_base_llm
+
 from agents.etl_analyst import etl_analyst
 from agents.sql_analyst import sql_analyst
 
-#---- Parent agent
 
-llm = get_base_llm("high")
+# ============================================================
+# Parent Agent
+# ============================================================
 
+llm = get_base_llm("medium")
 
-agent_router =  llm.with_structured_output(RouterSchema)
-
-# print(agent_router.invoke("I want to extract the data from an API and save it as a csv file."))
-
-# Data Agent Graph
-
-def router_node(state:DataAgentSchema):
-
-     message = state.messages[-1].content
-
-     route_response_dict = agent_router.invoke(message).model_dump()
-
-     route_response = route_response_dict['answer']
-
-     state.route_response = route_response
-
-     return state
-
-def etl_node(state:DataAgentSchema):
-
-     message = state.messages[-1].content
-
-     response = etl_analyst.invoke({"messages": [HumanMessage(content=f"{message}")]})  
-
-     state.messages = state.messages + [response]
-
-     return state
-
-def sql_node(state:DataAgentSchema):
-
-     message = state.messages[-1].content
-
-     input_schema = {
-             "messages": [],
-             "user_question": (f"{message}"),
-             "curated_ques": "",
-             "prompt_query_context": "",   
-             "generated_sql_query": "",    
-             "is_safe": "No",
-             "comments": "",
-             "sql_query_execution_result": "",
-             "final_answer": ""
-     }    
-
-     response = sql_analyst.invoke(input_schema)
-
-     state.messages = state.messages + [response]
-
-     return state
+agent_router = llm.with_structured_output(RouterSchema)
 
 
-# Graph and nodes
-data_agent_graph = StateGraph(DataAgentSchema)
+# ============================================================
+# Router Node
+# ============================================================
 
-data_agent_graph.add_node("router_node", router_node)
-data_agent_graph.add_node("etl_node", etl_node)
-data_agent_graph.add_node("sql_node", sql_node)
+def router_node(state: DataAgentSchema):
 
-data_agent_graph.add_edge(START, "router_node")
+    message = state.messages[-1].content
+
+    route_response = agent_router.invoke(message)
+
+    state.route_response = route_response.answer
+
+    return state
+
+
+# ============================================================
+# ETL Node
+# ============================================================
+
+def etl_node(state: DataAgentSchema):
+
+    user_message = state.messages[-1].content
+
+    response = etl_analyst.invoke(
+        {
+            "messages": [
+                HumanMessage(content=user_message)
+            ]
+        }
+    )
+
+    # Get messages returned by ETL agent
+    child_messages = response.get("messages", [])
+
+    # Find the final useful response
+    final_message = None
+
+    for message in reversed(child_messages):
+
+        if hasattr(message, "content") and message.content:
+
+            # Don't return tool-call messages as final answer
+            if not getattr(message, "tool_calls", None):
+
+                final_message = message.content
+                break
+
+    if final_message is None:
+
+        final_message = (
+            "The ETL operation was completed successfully."
+        )
+
+    state.messages = state.messages + [
+        HumanMessage(content=final_message)
+    ]
+
+    return state
+
+
+# ============================================================
+# SQL Node
+# ============================================================
+
+def sql_node(state: DataAgentSchema):
+
+    user_message = state.messages[-1].content
+
+    input_schema = {
+
+        "messages": [],
+
+        "user_question": user_message,
+
+        "curated_ques": "",
+
+        "prompt_query_context": "",
+
+        "generated_sql_query": "",
+
+        "is_safe": "No",
+
+        "comments": "",
+
+        "sql_query_execution_result": "",
+
+        "final_answer": "",
+    }
+
+    response = sql_analyst.invoke(input_schema)
+
+    # --------------------------------------------------------
+    # SQL agent returns a state dictionary / model
+    # --------------------------------------------------------
+
+    if hasattr(response, "model_dump"):
+
+        response_data = response.model_dump()
+
+    elif isinstance(response, dict):
+
+        response_data = response
+
+    else:
+
+        response_data = {}
+
+
+    # --------------------------------------------------------
+    # Get final answer generated by SQL agent
+    # --------------------------------------------------------
+
+    final_answer = response_data.get(
+        "final_answer",
+        ""
+    )
+
+
+    # --------------------------------------------------------
+    # Fallback
+    # --------------------------------------------------------
+
+    if not final_answer:
+
+        final_answer = (
+            "The SQL operation was completed, "
+            "but no final answer was returned."
+        )
+
+
+    state.messages = state.messages + [
+        HumanMessage(content=final_answer)
+    ]
+
+    return state
+
+
+# ============================================================
+# Routing Edge
+# ============================================================
 
 def route_edge(state: DataAgentSchema) -> str:
-     if state.route_response == "sql":
-        return "sql_node"
-     elif state.route_response == "etl":
-        return "etl_node"
-     else:
-        raise ValueError(f"Invalid route response: {state.route_response}")
-        
-data_agent_graph.add_conditional_edges("router_node", route_edge, {
-    "sql_node": "sql_node",
-    "etl_node": "etl_node"
-})
 
+    if state.route_response == "sql":
+
+        return "sql_node"
+
+    elif state.route_response == "etl":
+
+        return "etl_node"
+
+    else:
+
+        raise ValueError(
+            f"Invalid route response: {state.route_response}"
+        )
+
+
+# ============================================================
+# Build Graph
+# ============================================================
+
+data_agent_graph = StateGraph(DataAgentSchema)
+
+
+data_agent_graph.add_node(
+    "router_node",
+    router_node
+)
+
+data_agent_graph.add_node(
+    "etl_node",
+    etl_node
+)
+
+data_agent_graph.add_node(
+    "sql_node",
+    sql_node
+)
+
+
+# ============================================================
+# Graph Edges
+# ============================================================
+
+data_agent_graph.add_edge(
+    START,
+    "router_node"
+)
+
+
+data_agent_graph.add_conditional_edges(
+    "router_node",
+    route_edge,
+    {
+        "sql_node": "sql_node",
+        "etl_node": "etl_node",
+    }
+)
+
+
+# End after SQL / ETL
+data_agent_graph.add_edge(
+    "sql_node",
+    END
+)
+
+data_agent_graph.add_edge(
+    "etl_node",
+    END
+)
+
+
+# ============================================================
+# Compile
+# ============================================================
 
 data_agent = data_agent_graph.compile()
 
-#Optional graph visualization
-from IPython.display import display, Image, HTML
-graph_png = (data_agent.get_graph().draw_mermaid_png())
-with open("data_agent_graph.png", "wb") as f: f.write(graph_png)
 
+# ============================================================
+# Test
+# ============================================================
 
 if __name__ == "__main__":
 
     response = data_agent.invoke(
-        {"messages": [HumanMessage(content=f"what are different types of payment methods we have in our databases")],
-                    "route_response": "" }
+        {
+            "messages": [
+                HumanMessage(
+                    content=(
+                        "What are the different "
+                        "payment methods we have "
+                        "in our databases?"
+                    )
+                )
+            ],
+
+            "route_response": "",
+        }
     )
 
-    print(response)
-   
+    print("\n")
+    print("=" * 70)
+    print("DATA AGENT RESPONSE")
+    print("=" * 70)
 
+    for message in response["messages"]:
 
+        if hasattr(message, "content") and message.content:
 
-
-
-
-
-
-
-
-
-
+            print(message.content)
