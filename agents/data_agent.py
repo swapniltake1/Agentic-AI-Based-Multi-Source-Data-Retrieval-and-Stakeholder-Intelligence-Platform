@@ -17,6 +17,14 @@ from utils.llm_pick import get_base_llm
 from agents.etl_analyst import etl_analyst
 from agents.sql_analyst import sql_analyst
 
+from logging_config import setup_logging
+
+setup_logging()
+
+import logging
+
+
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # Parent Agent
@@ -33,13 +41,22 @@ agent_router = llm.with_structured_output(RouterSchema)
 
 def router_node(state: DataAgentSchema):
 
-    message = state.messages[-1].content
+    logger.info("Router started")
 
-    route_response = agent_router.invoke(message)
+    try:
+        message = state.messages[-1].content
 
-    state.route_response = route_response.answer
+        route_response = agent_router.invoke(message)
 
-    return state
+        state.route_response = route_response.answer
+
+        logger.info("Request routed to: %s", state.route_response)
+
+        return state
+
+    except Exception as e:
+        logger.error("Router failed: %s", e)
+        raise
 
 
 # ============================================================
@@ -48,44 +65,52 @@ def router_node(state: DataAgentSchema):
 
 def etl_node(state: DataAgentSchema):
 
-    user_message = state.messages[-1].content
+    try:
+        logger.info("ETL agent started")
 
-    response = etl_analyst.invoke(
-        {
-            "messages": [
-                HumanMessage(content=user_message)
-            ]
-        }
-    )
+        user_message = state.messages[-1].content
 
-    # Get messages returned by ETL agent
-    child_messages = response.get("messages", [])
-
-    # Find the final useful response
-    final_message = None
-
-    for message in reversed(child_messages):
-
-        if hasattr(message, "content") and message.content:
-
-            # Don't return tool-call messages as final answer
-            if not getattr(message, "tool_calls", None):
-
-                final_message = message.content
-                break
-
-    if final_message is None:
-
-        final_message = (
-            "The ETL operation was completed successfully."
+        response = etl_analyst.invoke(
+            {
+                "messages": [
+                    HumanMessage(content=user_message)
+                ]
+            }
         )
 
-    state.messages = state.messages + [
-        HumanMessage(content=final_message)
-    ]
+        # Get messages returned by ETL agent
+        child_messages = response.get("messages", [])
 
-    return state
+        # Find the final useful response
+        final_message = None
 
+        for message in reversed(child_messages):
+
+            if hasattr(message, "content") and message.content:
+
+                # Don't return tool-call messages as final answer
+                if not getattr(message, "tool_calls", None):
+
+                    final_message = message.content
+                    break
+
+        if final_message is None:
+
+            final_message = (
+                "The ETL operation was completed successfully."
+            )
+
+        state.messages = state.messages + [
+            HumanMessage(content=final_message)
+        ]
+
+        logger.info("ETL agent completed")
+
+        return state
+
+    except Exception as e:
+        logger.error("ETL agent failed: %s", e)
+        raise
 
 # ============================================================
 # SQL Node
@@ -253,29 +278,36 @@ data_agent = data_agent_graph.compile()
 
 if __name__ == "__main__":
 
-    response = data_agent.invoke(
-        {
-            "messages": [
-                HumanMessage(
-                    content=(
-                        "What are the different "
-                        "payment methods we have "
-                        "in our databases?"
+    logger.info("Data Agent started")
+
+    try:
+
+        response = data_agent.invoke(
+            {
+                "messages": [
+                    HumanMessage(
+                        content=(
+                            "What are the different "
+                            "payment methods we have "
+                            "in our databases?"
+                        )
                     )
-                )
-            ],
+                ],
+                "route_response": "",
+            }
+        )
 
-            "route_response": "",
-        }
-    )
+        logger.info("Data Agent completed")
 
-    print("\n")
-    print("=" * 70)
-    print("DATA AGENT RESPONSE")
-    print("=" * 70)
+        print("\n")
+        print("=" * 70)
+        print("DATA AGENT RESPONSE")
+        print("=" * 70)
 
-    for message in response["messages"]:
+        for message in response["messages"]:
+            if hasattr(message, "content") and message.content:
+                print(message.content)
 
-        if hasattr(message, "content") and message.content:
+    except Exception as e:
 
-            print(message.content)
+        logger.error("Data Agent failed: %s", e)

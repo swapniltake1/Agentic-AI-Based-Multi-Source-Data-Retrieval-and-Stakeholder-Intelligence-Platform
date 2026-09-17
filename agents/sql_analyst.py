@@ -1,12 +1,18 @@
 import os
 import sys
 import re
+import logging
 
+# Allow imports when running the project from the root directory
 sys.path.append(
     os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..")
     )
 )
+
+from logging_config import setup_logging
+
+setup_logging()
 
 from utils.database import DatabaseUtil, DB_CONFIG
 from utils.llm_pick import extract_content, pick_llm
@@ -14,6 +20,13 @@ from models.schema import AgentSchema, JudgeSchema
 
 from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
+
+
+# ===================================================================
+# Logger
+# ===================================================================
+
+logger = logging.getLogger(__name__)
 
 
 # ===================================================================
@@ -25,7 +38,9 @@ from langgraph.graph import StateGraph, START, END
 # Helper: Deterministic SQL Safety Check
 # -------------------------------------------------------------------
 
-def deterministic_sql_safety_check(sql_query: str) -> tuple[bool, str]:
+def deterministic_sql_safety_check(
+    sql_query: str,
+) -> tuple[bool, str]:
     """
     Deterministic safety validation for generated SQL.
 
@@ -35,22 +50,36 @@ def deterministic_sql_safety_check(sql_query: str) -> tuple[bool, str]:
     """
 
     if not sql_query:
+
         return False, "Generated SQL query is empty."
 
     sql = sql_query.strip()
 
     # ---------------------------------------------------------------
-    # Remove Markdown SQL fences if the model accidentally returns
-    # them.
+    # Remove Markdown SQL fences
     # ---------------------------------------------------------------
 
-    sql = re.sub(r"```sql", "", sql, flags=re.IGNORECASE)
-    sql = re.sub(r"```", "", sql)
+    sql = re.sub(
+        r"```sql",
+        "",
+        sql,
+        flags=re.IGNORECASE,
+    )
+
+    sql = re.sub(
+        r"```",
+        "",
+        sql,
+    )
 
     sql = sql.strip()
 
     if not sql:
-        return False, "Generated SQL query is empty after cleanup."
+
+        return (
+            False,
+            "Generated SQL query is empty after cleanup.",
+        )
 
     # ---------------------------------------------------------------
     # Reject multiple statements
@@ -63,9 +92,10 @@ def deterministic_sql_safety_check(sql_query: str) -> tuple[bool, str]:
     ]
 
     if len(statements) > 1:
+
         return (
             False,
-            "Multiple SQL statements are not allowed."
+            "Multiple SQL statements are not allowed.",
         )
 
     sql_upper = sql.upper().strip()
@@ -81,9 +111,10 @@ def deterministic_sql_safety_check(sql_query: str) -> tuple[bool, str]:
         or sql_upper.startswith("WITH ")
         or sql_upper.startswith("WITH\n")
     ):
+
         return (
             False,
-            "Only read-only SELECT or WITH queries are allowed."
+            "Only read-only SELECT or WITH queries are allowed.",
         )
 
     # ---------------------------------------------------------------
@@ -115,16 +146,18 @@ def deterministic_sql_safety_check(sql_query: str) -> tuple[bool, str]:
 
     for pattern in forbidden_patterns:
 
-        if re.search(pattern, sql_upper):
+        match = re.search(
+            pattern,
+            sql_upper,
+        )
 
-            keyword = re.search(
-                pattern,
-                sql_upper
-            ).group(0)
+        if match:
+
+            keyword = match.group(0)
 
             return (
                 False,
-                f"Forbidden SQL operation detected: {keyword}."
+                f"Forbidden SQL operation detected: {keyword}.",
             )
 
     # ---------------------------------------------------------------
@@ -141,32 +174,37 @@ def deterministic_sql_safety_check(sql_query: str) -> tuple[bool, str]:
 
     for pattern in transaction_patterns:
 
-        if re.search(pattern, sql_upper):
+        if re.search(
+            pattern,
+            sql_upper,
+        ):
 
             return (
                 False,
-                "Transaction or database-state operations are not allowed."
+                "Transaction or database-state operations "
+                "are not allowed.",
             )
 
     # ---------------------------------------------------------------
-    # Reject SQL comments that may be used for injection or hiding
-    # statements.
+    # Reject SQL comments
     # ---------------------------------------------------------------
 
     if "--" in sql:
+
         return (
             False,
-            "SQL line comments are not allowed."
+            "SQL line comments are not allowed.",
         )
 
     if "/*" in sql or "*/" in sql:
+
         return (
             False,
-            "SQL block comments are not allowed."
+            "SQL block comments are not allowed.",
         )
 
     # ---------------------------------------------------------------
-    # Reject PostgreSQL dangerous functions
+    # Reject dangerous PostgreSQL functions
     # ---------------------------------------------------------------
 
     dangerous_functions = [
@@ -186,322 +224,453 @@ def deterministic_sql_safety_check(sql_query: str) -> tuple[bool, str]:
 
             return (
                 False,
-                f"Potentially unsafe PostgreSQL function detected: "
-                f"{function_name}."
+                f"Potentially unsafe PostgreSQL function "
+                f"detected: {function_name}.",
             )
 
     # ---------------------------------------------------------------
     # Query passed deterministic checks
     # ---------------------------------------------------------------
 
-    return True, "Deterministic SQL safety checks passed."
+    return (
+        True,
+        "Deterministic SQL safety checks passed.",
+    )
 
 
 # -------------------------------------------------------------------
 # Node 1: Curate Question
 # -------------------------------------------------------------------
 
-def curate_question(state: AgentSchema) -> AgentSchema:
+def curate_question(
+    state: AgentSchema,
+) -> AgentSchema:
 
-    user_question = state.user_question
-
-    llm = pick_llm("medium")
-
-    response = llm.invoke(
-        f"""
-        Curate and clarify the following user's question.
-
-        Preserve the original intent.
-        Do not add requirements that the user did not ask for.
-        Return only the improved question.
-
-        User question:
-        {user_question}
-        """
+    logger.info(
+        "SQL question curation started"
     )
 
-    state.curated_ques = extract_content(response)
+    try:
 
-    state.messages = state.messages + [
-        HumanMessage(
-            content=user_question
-        ),
-        AIMessage(
-            content=state.curated_ques
-        ),
-    ]
+        user_question = state.user_question
 
-    return state
+        llm = pick_llm("medium")
+
+        response = llm.invoke(
+            f"""
+            Curate and clarify the following user's question.
+
+            Preserve the original intent.
+            Do not add requirements that the user did not ask for.
+            Return only the improved question.
+
+            User question:
+            {user_question}
+            """
+        )
+
+        state.curated_ques = extract_content(
+            response
+        )
+
+        state.messages = state.messages + [
+            HumanMessage(
+                content=user_question
+            ),
+            AIMessage(
+                content=state.curated_ques
+            ),
+        ]
+
+        logger.info(
+            "SQL question curation completed"
+        )
+
+        return state
+
+    except Exception as e:
+
+        logger.error(
+            "SQL question curation failed: %s",
+            e,
+        )
+
+        raise
 
 
 # -------------------------------------------------------------------
 # Node 2: Generate SQL Prompt
 # -------------------------------------------------------------------
 
-def propmt_query_context(state: AgentSchema) -> AgentSchema:
+def propmt_query_context(
+    state: AgentSchema,
+) -> AgentSchema:
 
-    curated_question = state.curated_ques
+    logger.info(
+        "Preparing SQL query context"
+    )
 
-    schema_info = DatabaseUtil(
-        DB_CONFIG
-    ).schema_details("public")
+    try:
 
-    prompt = f"""
-You are an SQL analyst agent.
+        curated_question = state.curated_ques
 
-Your task is to convert the user's natural-language question
-into a PostgreSQL SQL query that can be executed against the
-provided database.
+        schema_info = DatabaseUtil(
+            DB_CONFIG
+        ).schema_details("public")
 
-You are given:
+        logger.info(
+            "Database schema retrieved successfully"
+        )
 
-1. The user's curated question.
-2. Database schema details.
-3. Table names.
-4. Column names.
-5. Data types.
-6. Sample data where available.
+        prompt = f"""
+        You are an SQL analyst agent.
 
-Use ONLY tables and columns that exist in the provided schema.
+        Your task is to convert the user's natural-language question
+        into a PostgreSQL SQL query that can be executed against the
+        provided database.
 
-IMPORTANT RULES:
+        You are given:
 
-- Generate PostgreSQL-compatible SQL.
-- Generate ONLY one SQL statement.
-- The query must be READ-ONLY.
-- Only SELECT or WITH queries are allowed.
-- Never generate INSERT.
-- Never generate UPDATE.
-- Never generate DELETE.
-- Never generate DROP.
-- Never generate ALTER.
-- Never generate TRUNCATE.
-- Never generate CREATE.
-- Never generate GRANT.
-- Never generate REVOKE.
-- Never generate MERGE.
-- Never generate REPLACE.
-- Never generate EXEC.
-- Never generate EXECUTE.
-- Never generate CALL.
-- Never generate transaction commands.
-- Never generate database administration commands.
-- Never generate multiple SQL statements.
-- Never use SQL comments.
-- Never expose credentials or secrets.
+        1. The user's curated question.
+        2. Database schema details.
+        3. Table names.
+        4. Column names.
+        5. Data types.
+        6. Sample data where available.
 
-Unless the user explicitly requests a specific number of rows,
-LIMIT the result to 10 rows.
+        Use ONLY tables and columns that exist in the provided schema.
 
-If the user's request already contains a LIMIT,
-respect the user's requested limit.
+        IMPORTANT RULES:
 
-Return ONLY the SQL query.
+        - Generate PostgreSQL-compatible SQL.
+        - Generate ONLY one SQL statement.
+        - The query must be READ-ONLY.
+        - Only SELECT or WITH queries are allowed.
+        - Never generate INSERT.
+        - Never generate UPDATE.
+        - Never generate DELETE.
+        - Never generate DROP.
+        - Never generate ALTER.
+        - Never generate TRUNCATE.
+        - Never generate CREATE.
+        - Never generate GRANT.
+        - Never generate REVOKE.
+        - Never generate MERGE.
+        - Never generate REPLACE.
+        - Never generate EXEC.
+        - Never generate EXECUTE.
+        - Never generate CALL.
+        - Never generate transaction commands.
+        - Never generate database administration commands.
+        - Never generate multiple SQL statements.
+        - Never use SQL comments.
+        - Never expose credentials or secrets.
 
-User's Question:
-{curated_question}
+        Unless the user explicitly requests a specific number of rows,
+        LIMIT the result to 10 rows.
 
-Database Schema Details:
-{schema_info}
-"""
+        If the user's request already contains a LIMIT,
+        respect the user's requested limit.
 
-    state.prompt_query_context = prompt
+        Return ONLY the SQL query.
 
-    return state
+        User's Question:
+        {curated_question}
+
+        Database Schema Details:
+        {schema_info}
+        """
+
+        state.prompt_query_context = prompt
+
+        logger.info(
+            "SQL query context prepared successfully"
+        )
+
+        return state
+
+    except Exception as e:
+
+        logger.error(
+            "Failed to prepare SQL query context: %s",
+            e,
+        )
+
+        raise
 
 
 # -------------------------------------------------------------------
 # Node 3: Generate SQL
 # -------------------------------------------------------------------
 
-def generate_sql(state: AgentSchema) -> AgentSchema:
+def generate_sql(
+    state: AgentSchema,
+) -> AgentSchema:
 
-    prompt = state.prompt_query_context
-
-    llm = pick_llm("low")
-
-    response = llm.invoke(prompt)
-
-    generated_sql = extract_content(response)
-
-    # ---------------------------------------------------------------
-    # Clean accidental Markdown fences
-    # ---------------------------------------------------------------
-
-    generated_sql = re.sub(
-        r"```sql",
-        "",
-        generated_sql,
-        flags=re.IGNORECASE
+    logger.info(
+        "SQL generation started"
     )
 
-    generated_sql = re.sub(
-        r"```",
-        "",
-        generated_sql
-    )
+    try:
 
-    state.generated_sql_query = generated_sql.strip()
+        prompt = state.prompt_query_context
 
-    return state
+        llm = pick_llm("low")
+
+        response = llm.invoke(prompt)
+
+        generated_sql = extract_content(
+            response
+        )
+
+        # -----------------------------------------------------------
+        # Clean accidental Markdown fences
+        # -----------------------------------------------------------
+
+        generated_sql = re.sub(
+            r"```sql",
+            "",
+            generated_sql,
+            flags=re.IGNORECASE,
+        )
+
+        generated_sql = re.sub(
+            r"```",
+            "",
+            generated_sql,
+        )
+
+        state.generated_sql_query = (
+            generated_sql.strip()
+        )
+
+        logger.info(
+            "SQL generation completed"
+        )
+
+        return state
+
+    except Exception as e:
+
+        logger.error(
+            "SQL generation failed: %s",
+            e,
+        )
+
+        raise
 
 
 # -------------------------------------------------------------------
 # Node 4: SQL Safety Judge
 # -------------------------------------------------------------------
 
-def is_safe_sql(state: AgentSchema) -> AgentSchema:
+def is_safe_sql(
+    state: AgentSchema,
+) -> AgentSchema:
 
-    sql_query = state.generated_sql_query
-
-    # ---------------------------------------------------------------
-    # First perform deterministic validation
-    # ---------------------------------------------------------------
-
-    deterministic_safe, deterministic_feedback = (
-        deterministic_sql_safety_check(
-            sql_query
-        )
+    logger.info(
+        "SQL safety validation started"
     )
-
-    if not deterministic_safe:
-
-        state.is_safe = "No"
-        state.comments = deterministic_feedback
-
-        return state
-
-    # ---------------------------------------------------------------
-    # LLM safety judge
-    #
-    # IMPORTANT:
-    # Structured output is passed directly into pick_llm().
-    # Do NOT call:
-    #
-    # llm.with_structured_output(...)
-    #
-    # because pick_llm() already returns a retry-wrapped runnable.
-    # ---------------------------------------------------------------
-
-    llm_judge = pick_llm(
-        "low",
-        output_schema=JudgeSchema,
-    )
-
-    prompt = f"""
-    You are a strict SQL safety judge.
-
-    Review the generated PostgreSQL query.
-
-    The query must satisfy ALL of these requirements:
-
-    1. It must be read-only.
-    2. It must be a SELECT or WITH query.
-    3. It must not modify data.
-    4. It must not modify database schema.
-    5. It must not modify permissions.
-    6. It must not change database state.
-    7. It must not contain multiple statements.
-    8. It must not contain SQL injection patterns.
-    9. It must not access unavailable tables or columns.
-    10. It must fulfill the user's request.
-    11. It must not expose credentials or secrets.
-    12. It must not execute operating-system commands.
-    13. It must not execute unsafe PostgreSQL functions.
-
-    Unsafe operations include:
-
-    INSERT
-    UPDATE
-    DELETE
-    DROP
-    ALTER
-    TRUNCATE
-    CREATE
-    GRANT
-    REVOKE
-    MERGE
-    REPLACE
-    EXEC
-    EXECUTE
-    CALL
-    COPY
-    VACUUM
-    REINDEX
-    transaction commands
-    database administration commands
-
-    Only read-only SELECT/WITH queries are permitted.
-
-    Generated SQL Query:
-    {sql_query}
-
-    Return the result using the provided structured output schema.
-    """
 
     try:
 
-        response = llm_judge.invoke(prompt)
+        sql_query = state.generated_sql_query
 
         # -----------------------------------------------------------
-        # Structured Pydantic response
+        # Deterministic validation
         # -----------------------------------------------------------
 
-        response_data = response.model_dump()
-
-        # -----------------------------------------------------------
-        # Read answer field
-        # -----------------------------------------------------------
-
-        answer = str(
-            response_data.get(
-                "answer",
-                "No"
+        deterministic_safe, deterministic_feedback = (
+            deterministic_sql_safety_check(
+                sql_query
             )
-        ).strip()
+        )
 
-        comments = str(
-            response_data.get(
-                "comments",
+        if not deterministic_safe:
+
+            state.is_safe = "No"
+            state.comments = deterministic_feedback
+
+            logger.warning(
+                "SQL rejected by deterministic safety check"
+            )
+
+            return state
+
+        logger.info(
+            "Deterministic SQL safety check passed"
+        )
+
+        # -----------------------------------------------------------
+        # LLM safety judge
+        # -----------------------------------------------------------
+
+        llm_judge = pick_llm(
+            "low",
+            output_schema=JudgeSchema,
+        )
+
+        prompt = f"""
+        You are a strict SQL safety judge.
+
+        Review the generated PostgreSQL query.
+
+        The query must satisfy ALL of these requirements:
+
+        1. It must be read-only.
+        2. It must be a SELECT or WITH query.
+        3. It must not modify data.
+        4. It must not modify database schema.
+        5. It must not modify permissions.
+        6. It must not change database state.
+        7. It must not contain multiple statements.
+        8. It must not contain SQL injection patterns.
+        9. It must not access unavailable tables or columns.
+        10. It must fulfill the user's request.
+        11. It must not expose credentials or secrets.
+        12. It must not execute operating-system commands.
+        13. It must not execute unsafe PostgreSQL functions.
+
+        Unsafe operations include:
+
+        INSERT
+        UPDATE
+        DELETE
+        DROP
+        ALTER
+        TRUNCATE
+        CREATE
+        GRANT
+        REVOKE
+        MERGE
+        REPLACE
+        EXEC
+        EXECUTE
+        CALL
+        COPY
+        VACUUM
+        REINDEX
+        transaction commands
+
+        Only read-only SELECT/WITH queries are permitted.
+
+        Generated SQL Query:
+        {sql_query}
+
+        Return the result using the provided structured output schema.
+        """
+
+        try:
+
+            response = llm_judge.invoke(
+                prompt
+            )
+
+            response_data = response.model_dump()
+
+            answer = str(
                 response_data.get(
-                    "feedback",
-                    ""
+                    "answer",
+                    "No",
                 )
-            )
-        ).strip()
+            ).strip()
 
-        if answer.lower() in {
-            "yes",
-            "safe",
-            "true",
-        }:
+            comments = str(
+                response_data.get(
+                    "comments",
+                    response_data.get(
+                        "feedback",
+                        "",
+                    ),
+                )
+            ).strip()
 
-            state.is_safe = "Yes"
+            if answer.lower() in {
+                "yes",
+                "safe",
+                "true",
+            }:
 
-        else:
+                state.is_safe = "Yes"
 
-            state.is_safe = "No"
+                logger.info(
+                    "SQL approved by safety judge"
+                )
 
-        state.comments = comments
+            else:
 
-    except Exception as exc:
-        # If deterministic check verified it is strictly a read-only SELECT,
-        # allow it through with a logged warning rather than failing the whole graph
-        if deterministic_safe and sql_query.upper().strip().startswith("SELECT"):
-            state.is_safe = "Yes"
-            state.comments = f"Passed deterministic safety validation (LLM judge unavailable: {exc})"
-        else:
-            state.is_safe = "No"
-            state.comments = f"SQL safety judge failed. Execution blocked. Error: {exc}"
+                state.is_safe = "No"
 
-    return state
+                logger.warning(
+                    "SQL rejected by safety judge"
+                )
+
+            state.comments = comments
+
+        except Exception as exc:
+
+            # Deterministic validation already confirmed
+            # that this is a read-only SELECT.
+            if (
+                deterministic_safe
+                and sql_query.upper().strip().startswith(
+                    "SELECT"
+                )
+            ):
+
+                state.is_safe = "Yes"
+
+                state.comments = (
+                    "Passed deterministic safety validation "
+                    f"(LLM judge unavailable: {exc})"
+                )
+
+                logger.warning(
+                    "SQL safety judge unavailable. "
+                    "Using deterministic validation."
+                )
+
+            else:
+
+                state.is_safe = "No"
+
+                state.comments = (
+                    "SQL safety judge failed. "
+                    f"Execution blocked. Error: {exc}"
+                )
+
+                logger.error(
+                    "SQL safety validation failed: %s",
+                    exc,
+                )
+
+        logger.info(
+            "SQL safety validation completed"
+        )
+
+        return state
+
+    except Exception as e:
+
+        logger.error(
+            "SQL safety node failed: %s",
+            e,
+        )
+
+        raise
 
 
 # -------------------------------------------------------------------
 # Node 5: Cancel Unsafe SQL
 # -------------------------------------------------------------------
 
-def canceled_sql(state: AgentSchema) -> AgentSchema:
+def canceled_sql(
+    state: AgentSchema,
+) -> AgentSchema:
+
+    logger.warning(
+        "Unsafe SQL execution canceled"
+    )
 
     comments = state.comments
 
@@ -523,93 +692,157 @@ def canceled_sql(state: AgentSchema) -> AgentSchema:
 # Node 6: Execute SQL
 # -------------------------------------------------------------------
 
-def execute_sql(state: AgentSchema) -> AgentSchema:
+def execute_sql(
+    state: AgentSchema,
+) -> AgentSchema:
 
-    sql_query = state.generated_sql_query
-
-    # ---------------------------------------------------------------
-    # Final deterministic safety check immediately before execution.
-    #
-    # This is defense-in-depth.
-    # ---------------------------------------------------------------
-
-    safe, feedback = deterministic_sql_safety_check(
-        sql_query
+    logger.info(
+        "SQL execution started"
     )
 
-    if not safe:
+    try:
 
-        state.is_safe = "No"
-        state.comments = feedback
+        sql_query = state.generated_sql_query
+
+        # -----------------------------------------------------------
+        # Final deterministic safety check
+        # -----------------------------------------------------------
+
+        safe, feedback = (
+            deterministic_sql_safety_check(
+                sql_query
+            )
+        )
+
+        if not safe:
+
+            state.is_safe = "No"
+            state.comments = feedback
+
+            logger.warning(
+                "SQL execution blocked by final safety check"
+            )
+
+            return state
+
+        logger.info(
+            "Final SQL safety check passed"
+        )
+
+        # -----------------------------------------------------------
+        # Execute query
+        # -----------------------------------------------------------
+
+        dbconn = DatabaseUtil(
+            DB_CONFIG
+        )
+
+        execution_result = (
+            dbconn.execute_sql_query(
+                sql_query
+            )
+        )
+
+        state.sql_query_execution_result = (
+            execution_result
+        )
+
+        logger.info(
+            "SQL execution completed successfully"
+        )
 
         return state
 
-    # ---------------------------------------------------------------
-    # Execute query
-    # ---------------------------------------------------------------
+    except Exception as e:
 
-    dbconn = DatabaseUtil(DB_CONFIG)
+        logger.error(
+            "SQL execution failed: %s",
+            e,
+        )
 
-    execution_result = dbconn.execute_sql_query(
-        sql_query
-    )
-
-    state.sql_query_execution_result = execution_result
-
-    return state
+        raise
 
 
 # -------------------------------------------------------------------
 # Node 7: Final Answer
 # -------------------------------------------------------------------
 
-def final_answer(state: AgentSchema) -> AgentSchema:
+def final_answer(
+    state: AgentSchema,
+) -> AgentSchema:
 
-    execution_result = (
-        state.sql_query_execution_result
+    logger.info(
+        "Generating final SQL response"
     )
 
-    curated_question = state.curated_ques
+    try:
 
-    llm = pick_llm("medium")
-
-    prompt = f"""
-You are an SQL analyst agent.
-
-Provide a clear and concise final answer to the user's question
-based ONLY on the result of the SQL query execution.
-
-Do not invent information.
-
-If the execution result is empty, explain that no matching
-records were found.
-
-If the result contains data, summarize the relevant information
-in a user-friendly manner.
-
-User's Question:
-{curated_question}
-
-SQL Query Execution Result:
-{execution_result}
-"""
-
-    response = llm.invoke(prompt)
-
-    state.final_answer = extract_content(response)
-
-    state.messages = state.messages + [
-        AIMessage(
-            content=state.final_answer
+        execution_result = (
+            state.sql_query_execution_result
         )
-    ]
 
-    return state
+        curated_question = state.curated_ques
+
+        llm = pick_llm("medium")
+
+        prompt = f"""
+        You are an SQL analyst agent.
+
+        Provide a clear and concise final answer to the user's question
+        based ONLY on the result of the SQL query execution.
+
+        Do not invent information.
+
+        If the execution result is empty, explain that no matching
+        records were found.
+
+        If the result contains data, summarize the relevant information
+        in a user-friendly manner.
+
+        User's Question:
+        {curated_question}
+
+        SQL Query Execution Result:
+        {execution_result}
+        """
+
+        response = llm.invoke(
+            prompt
+        )
+
+        state.final_answer = extract_content(
+            response
+        )
+
+        state.messages = state.messages + [
+            AIMessage(
+                content=state.final_answer
+            )
+        ]
+
+        logger.info(
+            "Final SQL response generated successfully"
+        )
+
+        return state
+
+    except Exception as e:
+
+        logger.error(
+            "Final SQL response generation failed: %s",
+            e,
+        )
+
+        raise
 
 
 # ===================================================================
 # LangGraph
 # ===================================================================
+
+logger.info(
+    "Building SQL Analyst graph"
+)
 
 sql_agent_graph = StateGraph(
     AgentSchema
@@ -622,37 +855,37 @@ sql_agent_graph = StateGraph(
 
 sql_agent_graph.add_node(
     "curate_question",
-    curate_question
+    curate_question,
 )
 
 sql_agent_graph.add_node(
     "propmt_query_context",
-    propmt_query_context
+    propmt_query_context,
 )
 
 sql_agent_graph.add_node(
     "generate_sql",
-    generate_sql
+    generate_sql,
 )
 
 sql_agent_graph.add_node(
     "is_safe_sql",
-    is_safe_sql
+    is_safe_sql,
 )
 
 sql_agent_graph.add_node(
     "canceled_sql",
-    canceled_sql
+    canceled_sql,
 )
 
 sql_agent_graph.add_node(
     "execute_sql",
-    execute_sql
+    execute_sql,
 )
 
 sql_agent_graph.add_node(
     "final_answer",
-    final_answer
+    final_answer,
 )
 
 
@@ -662,22 +895,22 @@ sql_agent_graph.add_node(
 
 sql_agent_graph.add_edge(
     START,
-    "curate_question"
+    "curate_question",
 )
 
 sql_agent_graph.add_edge(
     "curate_question",
-    "propmt_query_context"
+    "propmt_query_context",
 )
 
 sql_agent_graph.add_edge(
     "propmt_query_context",
-    "generate_sql"
+    "generate_sql",
 )
 
 sql_agent_graph.add_edge(
     "generate_sql",
-    "is_safe_sql"
+    "is_safe_sql",
 )
 
 
@@ -686,7 +919,7 @@ sql_agent_graph.add_edge(
 # -------------------------------------------------------------------
 
 def is_safe_sql_edge_condition(
-    state: AgentSchema
+    state: AgentSchema,
 ) -> str:
 
     is_safe = str(
@@ -695,7 +928,15 @@ def is_safe_sql_edge_condition(
 
     if is_safe == "yes":
 
+        logger.info(
+            "Routing safe SQL to execution"
+        )
+
         return "execute_sql"
+
+    logger.warning(
+        "Routing unsafe SQL to cancellation"
+    )
 
     return "canceled_sql"
 
@@ -716,20 +957,30 @@ sql_agent_graph.add_conditional_edges(
 
 sql_agent_graph.add_edge(
     "execute_sql",
-    "final_answer"
+    "final_answer",
 )
 
 sql_agent_graph.add_edge(
     "final_answer",
-    END
+    END,
 )
 
 sql_agent_graph.add_edge(
     "canceled_sql",
-    END
+    END,
 )
 
+
+# -------------------------------------------------------------------
+# Compile
+# -------------------------------------------------------------------
+
 sql_analyst = sql_agent_graph.compile()
+
+logger.info(
+    "SQL Analyst graph compiled successfully"
+)
+
 
 # ===================================================================
 # Main
@@ -737,11 +988,9 @@ sql_analyst = sql_agent_graph.compile()
 
 if __name__ == "__main__":
 
-    # ---------------------------------------------------------------
-    # Compile graph
-    # ---------------------------------------------------------------
-
-    
+    logger.info(
+        "Starting SQL Analyst standalone test"
+    )
 
     # ---------------------------------------------------------------
     # Optional graph visualization
@@ -749,7 +998,11 @@ if __name__ == "__main__":
 
     try:
 
-        from IPython.display import display, Image, HTML
+        from IPython.display import (
+            display,
+            Image,
+            HTML,
+        )
 
         graph_png = (
             sql_analyst
@@ -759,10 +1012,14 @@ if __name__ == "__main__":
 
         with open(
             "sql_analyst_graph.png",
-            "wb"
+            "wb",
         ) as f:
 
             f.write(graph_png)
+
+        logger.info(
+            "SQL Analyst graph visualization generated"
+        )
 
         display(
             HTML(
@@ -776,8 +1033,9 @@ if __name__ == "__main__":
 
     except Exception as exc:
 
-        print(
-            f"Graph visualization skipped: {exc}"
+        logger.warning(
+            "Graph visualization skipped: %s",
+            exc,
         )
 
     # ---------------------------------------------------------------
@@ -785,6 +1043,7 @@ if __name__ == "__main__":
     # ---------------------------------------------------------------
 
     input_schema = {
+
         "messages": [],
 
         "user_question": (
@@ -807,27 +1066,32 @@ if __name__ == "__main__":
         "final_answer": "",
     }
 
-# ---------------------------------------------------------------
-# Execute graph
-# ---------------------------------------------------------------
-
-# ---------------------------------------------------------------
-# Execute graph
-# ---------------------------------------------------------------
+    # ---------------------------------------------------------------
+    # Execute graph
+    # ---------------------------------------------------------------
 
     try:
 
-        sql_analyst_response = sql_analyst.invoke(
-            input_schema
+        sql_analyst_response = (
+            sql_analyst.invoke(
+                input_schema
+            )
+        )
+
+        logger.info(
+            "SQL Analyst standalone test completed"
         )
 
         print(
             sql_analyst_response.get(
                 "final_answer",
-                "No answer generated."
+                "No answer generated.",
             )
         )
 
     except Exception as exc:
 
-        print(f"Error: {type(exc).__name__}: {exc}")
+        logger.error(
+            "SQL Analyst execution failed: %s",
+            exc,
+        )

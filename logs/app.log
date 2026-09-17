@@ -1,0 +1,21 @@
+2026-09-17 21:07:09,435 | INFO | __main__ | Initializing ETL agent tools
+2026-09-17 21:07:09,435 | INFO | utils.llm_pick | Initializing tool LLM: medium
+2026-09-17 21:07:09,536 | INFO | utils.llm_pick | Tool LLM fallback configured: ['gemini-3.5-flash-lite']
+2026-09-17 21:07:09,552 | INFO | utils.llm_pick | Tool LLM initialized successfully: gemini-3.7-flash
+2026-09-17 21:07:09,552 | INFO | __main__ | ETL agent tools initialized successfully
+2026-09-17 21:07:09,552 | INFO | __main__ | Building ETL agent graph
+2026-09-17 21:07:09,558 | INFO | __main__ | ETL agent graph compiled successfully
+2026-09-17 21:07:09,558 | INFO | __main__ | Starting ETL agent standalone test
+2026-09-17 21:07:10,353 | INFO | __main__ | ETL agent graph visualization generated
+2026-09-17 21:07:10,364 | INFO | __main__ | ETL LLM node started
+2026-09-17 21:07:54,228 | INFO | google_genai._api_client | Retrying google.genai._api_client.BaseApiClient._request_once in 1.95 seconds as it raised ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}.
+2026-09-17 21:08:44,974 | INFO | google_genai._api_client | Retrying google.genai._api_client.BaseApiClient._request_once in 2.51 seconds as it raised ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}.
+2026-09-17 21:08:59,823 | INFO | __main__ | ETL LLM node completed
+2026-09-17 21:08:59,823 | INFO | __main__ | Tool call detected. Routing to tool node
+2026-09-17 21:08:59,823 | INFO | __main__ | ETL tool node started
+2026-09-17 21:08:59,823 | INFO | __main__ | Executing 1 ETL tool call(s)
+2026-09-17 21:08:59,823 | INFO | __main__ | Executing ETL tool: transform_load_tool
+2026-09-17 21:08:59,823 | INFO | __main__ | Transform and load operation started
+2026-09-17 21:08:59,823 | ERROR | __main__ | Transform and load operation failed: No supported input file found for 'data/extract'
+2026-09-17 21:08:59,823 | ERROR | __main__ | ETL tool node failed: No supported input file found for 'data/extract'
+2026-09-17 21:08:59,823 | ERROR | __main__ | ETL agent standalone test failed: No supported input file found for 'data/extract'
