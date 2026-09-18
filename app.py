@@ -1,27 +1,34 @@
 import logging
+import time
+
 import streamlit as st
 
 from logging_config import setup_logging
 
-# Initialize centralized application logging before importing
-# application components that may create log messages.
+
+# ============================================================
+# Logging Configuration
+# ============================================================
+
+# Initialize centralized application logging.
 setup_logging()
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# LangChain / Agent Imports
+# ============================================================
 
 from langchain_core.messages import HumanMessage, AIMessage
 
 from agents.data_agent import data_agent
+
 from utils.llm_pick import (
     get_base_llm,
     MODEL_CONFIG,
     ModelTier,
 )
-
-
-# ============================================================
-# Logging
-# ============================================================
-
-logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -86,6 +93,14 @@ st.markdown(
         font-weight: 600;
     }
 
+    /* Response metadata */
+    .response-metadata {
+        font-size: 12px;
+        color: #9ca3af;
+        margin-top: -5px;
+        margin-bottom: 10px;
+    }
+
     /* Footer */
     .footer-text {
         text-align: center;
@@ -128,12 +143,10 @@ st.markdown(
 # Constants
 # ============================================================
 
-# Maximum amount of time the frontend will wait for the
-# synchronous Data Agent execution.
+# Maximum LangGraph recursion depth.
 #
-# This prevents the UI from appearing to run forever when
-# an LLM/API/tool call becomes stuck.
-AGENT_TIMEOUT_SECONDS = 120
+# This prevents an accidental graph loop from running forever.
+AGENT_RECURSION_LIMIT = 20
 
 
 # ============================================================
@@ -143,6 +156,7 @@ AGENT_TIMEOUT_SECONDS = 120
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
+
 if "model_status" not in st.session_state:
     st.session_state.model_status = {
         ModelTier.HIGH.value: "not_tested",
@@ -150,8 +164,10 @@ if "model_status" not in st.session_state:
         ModelTier.LOW.value: "not_tested",
     }
 
+
 if "model_errors" not in st.session_state:
     st.session_state.model_errors = {}
+
 
 if "run_model_tests" not in st.session_state:
     st.session_state.run_model_tests = False
@@ -165,7 +181,10 @@ def extract_message_text(message) -> str:
     """
     Extract text content from a LangChain message.
 
-    Handles both normal string content and structured list content.
+    Handles:
+    - String content
+    - List-based structured content
+    - Dictionary text blocks
     """
 
     if not hasattr(message, "content"):
@@ -173,9 +192,11 @@ def extract_message_text(message) -> str:
 
     content = message.content
 
+    # Normal text response.
     if isinstance(content, str):
         return content.strip()
 
+    # Structured content response.
     if isinstance(content, list):
 
         text_parts = []
@@ -202,34 +223,41 @@ def extract_message_text(message) -> str:
 
 def extract_final_answer(result, route: str) -> str | None:
     """
-    Extract the final user-facing AI response from the Data Agent result.
+    Extract the final user-facing AI response from the Data Agent.
 
-    The Data Agent stores the final response as an AIMessage.
-    We therefore prioritize AIMessage instead of blindly selecting
-    the last message with content.
+    AIMessage is preferred so that:
+    - HumanMessage is never shown as an answer.
+    - Tool-call messages are not shown.
+    - Intermediate agent messages are not accidentally displayed.
 
     Args:
-        result: Data Agent graph result.
-        route: Resolved route ("sql" or "etl").
+        result: Data Agent result.
+        route: SQL or ETL.
 
     Returns:
-        str | None:
-            Final answer if one exists, otherwise None.
+        Final AI response or None.
     """
 
     if not isinstance(result, dict):
+
         logger.error(
             "Data Agent returned unexpected result type: %s",
             type(result).__name__,
         )
+
         return None
 
-    messages = result.get("messages", [])
+    messages = result.get(
+        "messages",
+        [],
+    )
 
     if not messages:
+
         logger.warning(
             "Data Agent returned no messages"
         )
+
         return None
 
     logger.debug(
@@ -238,24 +266,26 @@ def extract_final_answer(result, route: str) -> str | None:
     )
 
     # --------------------------------------------------------
-    # First priority: AIMessage
+    # Primary: AIMessage
     # --------------------------------------------------------
-    #
-    # Your Data Agent explicitly appends generated answers as
-    # AIMessage objects. This prevents user/router/tool messages
-    # from accidentally being displayed as the final answer.
+
     for message in reversed(messages):
 
         if not isinstance(message, AIMessage):
             continue
 
         # Ignore AI messages that only contain tool calls.
-        if getattr(message, "tool_calls", None):
+        if getattr(
+            message,
+            "tool_calls",
+            None,
+        ):
             continue
 
         content = extract_message_text(message)
 
         if content:
+
             logger.info(
                 "Final AI response extracted successfully"
             )
@@ -266,28 +296,33 @@ def extract_final_answer(result, route: str) -> str | None:
     # Secondary fallback
     # --------------------------------------------------------
     #
-    # Keep a small fallback for cases where a child agent returns
-    # a message object that is not exactly AIMessage.
+    # This handles unusual child-agent responses where the
+    # response may not be represented exactly as AIMessage.
+    # HumanMessage is explicitly excluded.
+    # --------------------------------------------------------
+
     for message in reversed(messages):
 
-        if getattr(message, "tool_calls", None):
+        if isinstance(message, HumanMessage):
+            continue
+
+        if getattr(
+            message,
+            "tool_calls",
+            None,
+        ):
             continue
 
         content = extract_message_text(message)
 
-        if not content:
-            continue
+        if content:
 
-        # Never return the original user question as the answer.
-        if isinstance(message, HumanMessage):
-            continue
+            logger.warning(
+                "Final response extracted from non-AIMessage: %s",
+                type(message).__name__,
+            )
 
-        logger.warning(
-            "Final response extracted from non-AIMessage type: %s",
-            type(message).__name__,
-        )
-
-        return content
+            return content
 
     logger.warning(
         "No valid final AI response found for route: %s",
@@ -297,12 +332,69 @@ def extract_final_answer(result, route: str) -> str | None:
     return None
 
 
+def get_response_metadata(
+    route: str,
+    duration: float,
+) -> str:
+    """
+    Build the small metadata line displayed below the AI response.
+
+    Example:
+
+        🗄️ SQL Analyst · Gemini Medium · 4.2s
+
+    Args:
+        route: Data Agent route.
+        duration: Execution duration in seconds.
+
+    Returns:
+        Formatted metadata string.
+    """
+
+    # --------------------------------------------------------
+    # Determine analyst
+    # --------------------------------------------------------
+
+    if route == "sql":
+
+        analyst = "🗄️ SQL Analyst"
+
+    elif route == "etl":
+
+        analyst = "🔄 ETL Analyst"
+
+    else:
+
+        analyst = "🤖 Data Agent"
+
+    # --------------------------------------------------------
+    # Model
+    # --------------------------------------------------------
+    #
+    # Current Data Agent configuration uses the medium tier.
+    # Keep this display name user-friendly rather than exposing
+    # the internal Gemini model identifier.
+    # --------------------------------------------------------
+
+    model_display = "Gemini Medium"
+
+    # --------------------------------------------------------
+    # Execution time
+    # --------------------------------------------------------
+
+    return (
+        f"{analyst} · "
+        f"{model_display} · "
+        f"{duration:.1f}s"
+    )
+
+
 def get_safe_error_message(exception: Exception) -> str:
     """
-    Convert internal exceptions into a user-friendly frontend message.
+    Convert internal exceptions into a safe frontend message.
 
-    Detailed exception information is logged separately and should not
-    be exposed directly to the user.
+    Detailed technical errors are logged but are not exposed
+    directly to the user.
     """
 
     error_type = type(exception).__name__
@@ -328,7 +420,8 @@ def test_model(tier: ModelTier) -> bool:
     Test whether a Gemini model is responding.
 
     Returns:
-        bool: True when the model returns content.
+        True when a response is received.
+        False when the model fails or returns empty content.
     """
 
     model_name = MODEL_CONFIG[tier]["model"]
@@ -383,7 +476,7 @@ def test_model(tier: ModelTier) -> bool:
         ] = "Empty response"
 
         logger.warning(
-            "Model test returned empty response: %s",
+            "Model returned an empty response: %s",
             model_name,
         )
 
@@ -415,7 +508,7 @@ def test_model(tier: ModelTier) -> bool:
 with st.sidebar:
 
     # --------------------------------------------------------
-    # Application title
+    # Application Title
     # --------------------------------------------------------
 
     st.title("🤖 Data Agent")
@@ -425,7 +518,7 @@ with st.sidebar:
     )
 
     # --------------------------------------------------------
-    # New chat
+    # New Chat
     # --------------------------------------------------------
 
     if st.button(
@@ -433,7 +526,9 @@ with st.sidebar:
         use_container_width=True,
     ):
 
-        logger.info("Starting new chat")
+        logger.info(
+            "Starting new chat"
+        )
 
         st.session_state.chat_history = []
 
@@ -490,7 +585,7 @@ with st.sidebar:
             )
 
     # --------------------------------------------------------
-    # Test button
+    # Model Test Information
     # --------------------------------------------------------
 
     st.caption(
@@ -527,7 +622,9 @@ with st.sidebar:
 
         st.divider()
 
-        st.write("Running model tests...")
+        st.write(
+            "Running model tests..."
+        )
 
         progress = st.progress(0)
 
@@ -608,7 +705,7 @@ if len(st.session_state.chat_history) == 0:
     st.write("")
 
     # --------------------------------------------------------
-    # Capability cards
+    # Capability Cards
     # --------------------------------------------------------
 
     card1, card2 = st.columns(
@@ -657,7 +754,7 @@ if len(st.session_state.chat_history) == 0:
     st.write("")
 
     # --------------------------------------------------------
-    # Suggested questions
+    # Suggested Questions
     # --------------------------------------------------------
 
     st.markdown(
@@ -770,7 +867,10 @@ if user_input:
 
     user_input = user_input.strip()
 
-    # Ignore empty/whitespace-only input.
+    # --------------------------------------------------------
+    # Validate User Input
+    # --------------------------------------------------------
+
     if not user_input:
 
         logger.warning(
@@ -788,7 +888,7 @@ if user_input:
     )
 
     # --------------------------------------------------------
-    # Store user question
+    # Store User Question
     # --------------------------------------------------------
 
     st.session_state.chat_history.append(
@@ -799,7 +899,7 @@ if user_input:
     )
 
     # --------------------------------------------------------
-    # Display user question
+    # Display User Question
     # --------------------------------------------------------
 
     with st.chat_message(
@@ -812,7 +912,7 @@ if user_input:
         )
 
     # --------------------------------------------------------
-    # Agent response
+    # Assistant Response
     # --------------------------------------------------------
 
     with st.chat_message(
@@ -830,6 +930,8 @@ if user_input:
                 "Analyzing your request..."
             ):
 
+                start_time = time.perf_counter()
+
                 logger.info(
                     "Calling Data Agent"
                 )
@@ -844,16 +946,22 @@ if user_input:
                         "route_response": "",
                     },
                     config={
-                        "recursion_limit": 20,
+                        "recursion_limit": AGENT_RECURSION_LIMIT,
                     },
                 )
 
+                duration = (
+                    time.perf_counter()
+                    - start_time
+                )
+
                 logger.info(
-                    "Data Agent execution completed"
+                    "Data Agent execution completed in %.2f seconds",
+                    duration,
                 )
 
             # ==================================================
-            # Validate Agent Result
+            # Validate Result
             # ==================================================
 
             if not isinstance(result, dict):
@@ -867,9 +975,9 @@ if user_input:
                     "Data Agent returned an invalid response."
                 )
 
-            # --------------------------------------------------
-            # Get route
-            # --------------------------------------------------
+            # ==================================================
+            # Get Route
+            # ==================================================
 
             route = result.get(
                 "route_response",
@@ -881,9 +989,9 @@ if user_input:
                 route if route else "unknown",
             )
 
-            # --------------------------------------------------
-            # Display route
-            # --------------------------------------------------
+            # ==================================================
+            # Display Route
+            # ==================================================
 
             if route == "sql":
 
@@ -907,7 +1015,7 @@ if user_input:
             )
 
             # ==================================================
-            # No Response Handling
+            # Handle Empty Response
             # ==================================================
 
             if not final_answer:
@@ -921,8 +1029,7 @@ if user_input:
                     "Please try your question again."
                 )
 
-                # Do NOT save a fake successful response
-                # into chat history.
+                # Do not save an empty/fake response.
                 st.stop()
 
             # ==================================================
@@ -933,10 +1040,25 @@ if user_input:
                 final_answer
             )
 
-            # --------------------------------------------------
-            # Save actual AI response
-            # --------------------------------------------------
+            # ==================================================
+            # Response Metadata
+            # ==================================================
 
+            response_metadata = get_response_metadata(
+                route=route,
+                duration=duration,
+            )
+
+            st.caption(
+                response_metadata
+            )
+
+            # ==================================================
+            # Save AI Response
+            # ==================================================
+
+            # Only the actual AI response is stored.
+            # Metadata remains UI-only and is not saved.
             st.session_state.chat_history.append(
                 {
                     "role": "assistant",
@@ -954,13 +1076,15 @@ if user_input:
 
         except Exception as e:
 
-            error_message = get_safe_error_message(e)
+            error_message = get_safe_error_message(
+                e
+            )
 
             st.error(
                 error_message
             )
 
-            # Save only the user-safe error message.
+            # Store the safe user-facing error message.
             st.session_state.chat_history.append(
                 {
                     "role": "assistant",
