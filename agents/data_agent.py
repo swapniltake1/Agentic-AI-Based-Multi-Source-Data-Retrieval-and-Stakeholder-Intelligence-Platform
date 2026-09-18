@@ -1,5 +1,6 @@
 import os
 import sys
+import logging
 
 # Allow imports when running the project from the root directory
 sys.path.append(
@@ -8,7 +9,7 @@ sys.path.append(
     )
 )
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 from langgraph.graph import StateGraph, START, END
 
 from models.schema import RouterSchema, DataAgentSchema
@@ -19,20 +20,27 @@ from agents.sql_analyst import sql_analyst
 
 from logging_config import setup_logging
 
+
+# ============================================================
+# Logging Configuration
+# ============================================================
+
 setup_logging()
 
-import logging
-
-
 logger = logging.getLogger(__name__)
+
 
 # ============================================================
 # Parent Agent
 # ============================================================
 
+logger.info("Initializing Data Agent")
+
 llm = get_base_llm("medium")
 
 agent_router = llm.with_structured_output(RouterSchema)
+
+logger.info("Data Agent router initialized")
 
 
 # ============================================================
@@ -44,18 +52,27 @@ def router_node(state: DataAgentSchema):
     logger.info("Router started")
 
     try:
+
         message = state.messages[-1].content
 
         route_response = agent_router.invoke(message)
 
         state.route_response = route_response.answer
 
-        logger.info("Request routed to: %s", state.route_response)
+        logger.info(
+            "Request routed to: %s",
+            state.route_response
+        )
 
         return state
 
     except Exception as e:
-        logger.error("Router failed: %s", e)
+
+        logger.error(
+            "Router failed: %s",
+            e
+        )
+
         raise
 
 
@@ -65,8 +82,9 @@ def router_node(state: DataAgentSchema):
 
 def etl_node(state: DataAgentSchema):
 
+    logger.info("ETL agent started")
+
     try:
-        logger.info("ETL agent started")
 
         user_message = state.messages[-1].content
 
@@ -79,38 +97,74 @@ def etl_node(state: DataAgentSchema):
         )
 
         # Get messages returned by ETL agent
-        child_messages = response.get("messages", [])
+        child_messages = response.get(
+            "messages",
+            []
+        )
+
+        logger.debug(
+            "ETL agent returned %d messages",
+            len(child_messages)
+        )
 
         # Find the final useful response
         final_message = None
 
         for message in reversed(child_messages):
 
-            if hasattr(message, "content") and message.content:
+            if not hasattr(
+                message,
+                "content"
+            ):
+                continue
 
-                # Don't return tool-call messages as final answer
-                if not getattr(message, "tool_calls", None):
+            if not message.content:
+                continue
 
-                    final_message = message.content
-                    break
+            # Don't return tool-call messages as final answer
+            if getattr(
+                message,
+                "tool_calls",
+                None
+            ):
+                continue
+
+            final_message = message.content
+
+            break
 
         if final_message is None:
+
+            logger.warning(
+                "ETL agent completed without a final response"
+            )
 
             final_message = (
                 "The ETL operation was completed successfully."
             )
 
+        # Agent-generated response should be AIMessage
         state.messages = state.messages + [
-            HumanMessage(content=final_message)
+            AIMessage(
+                content=final_message
+            )
         ]
 
-        logger.info("ETL agent completed")
+        logger.info(
+            "ETL agent completed"
+        )
 
         return state
 
     except Exception as e:
-        logger.error("ETL agent failed: %s", e)
+
+        logger.error(
+            "ETL agent failed: %s",
+            e
+        )
+
         raise
+
 
 # ============================================================
 # SQL Node
@@ -118,75 +172,113 @@ def etl_node(state: DataAgentSchema):
 
 def sql_node(state: DataAgentSchema):
 
-    user_message = state.messages[-1].content
+    logger.info("SQL agent started")
 
-    input_schema = {
+    try:
 
-        "messages": [],
+        user_message = state.messages[-1].content
 
-        "user_question": user_message,
+        input_schema = {
 
-        "curated_ques": "",
+            "messages": [],
 
-        "prompt_query_context": "",
+            "user_question": user_message,
 
-        "generated_sql_query": "",
+            "curated_ques": "",
 
-        "is_safe": "No",
+            "prompt_query_context": "",
 
-        "comments": "",
+            "generated_sql_query": "",
 
-        "sql_query_execution_result": "",
+            "is_safe": "No",
 
-        "final_answer": "",
-    }
+            "comments": "",
 
-    response = sql_analyst.invoke(input_schema)
+            "sql_query_execution_result": "",
 
-    # --------------------------------------------------------
-    # SQL agent returns a state dictionary / model
-    # --------------------------------------------------------
+            "final_answer": "",
+        }
 
-    if hasattr(response, "model_dump"):
-
-        response_data = response.model_dump()
-
-    elif isinstance(response, dict):
-
-        response_data = response
-
-    else:
-
-        response_data = {}
-
-
-    # --------------------------------------------------------
-    # Get final answer generated by SQL agent
-    # --------------------------------------------------------
-
-    final_answer = response_data.get(
-        "final_answer",
-        ""
-    )
-
-
-    # --------------------------------------------------------
-    # Fallback
-    # --------------------------------------------------------
-
-    if not final_answer:
-
-        final_answer = (
-            "The SQL operation was completed, "
-            "but no final answer was returned."
+        logger.debug(
+            "Invoking SQL Analyst"
         )
 
+        response = sql_analyst.invoke(
+            input_schema
+        )
 
-    state.messages = state.messages + [
-        HumanMessage(content=final_answer)
-    ]
+        # ----------------------------------------------------
+        # SQL agent returns a state dictionary / model
+        # ----------------------------------------------------
 
-    return state
+        if hasattr(
+            response,
+            "model_dump"
+        ):
+
+            response_data = response.model_dump()
+
+        elif isinstance(
+            response,
+            dict
+        ):
+
+            response_data = response
+
+        else:
+
+            logger.warning(
+                "SQL agent returned unexpected response type: %s",
+                type(response).__name__
+            )
+
+            response_data = {}
+
+        # ----------------------------------------------------
+        # Get final answer
+        # ----------------------------------------------------
+
+        final_answer = response_data.get(
+            "final_answer",
+            ""
+        )
+
+        # ----------------------------------------------------
+        # Fallback
+        # ----------------------------------------------------
+
+        if not final_answer:
+
+            logger.warning(
+                "SQL agent completed without a final answer"
+            )
+
+            final_answer = (
+                "The SQL operation was completed, "
+                "but no final answer was returned."
+            )
+
+        # Agent-generated response should be AIMessage
+        state.messages = state.messages + [
+            AIMessage(
+                content=final_answer
+            )
+        ]
+
+        logger.info(
+            "SQL agent completed"
+        )
+
+        return state
+
+    except Exception as e:
+
+        logger.error(
+            "SQL agent failed: %s",
+            e
+        )
+
+        raise
 
 
 # ============================================================
@@ -195,18 +287,38 @@ def sql_node(state: DataAgentSchema):
 
 def route_edge(state: DataAgentSchema) -> str:
 
-    if state.route_response == "sql":
+    route = state.route_response
+
+    logger.info(
+        "Evaluating route: %s",
+        route
+    )
+
+    if route == "sql":
+
+        logger.info(
+            "Routing request to SQL node"
+        )
 
         return "sql_node"
 
-    elif state.route_response == "etl":
+    elif route == "etl":
+
+        logger.info(
+            "Routing request to ETL node"
+        )
 
         return "etl_node"
 
     else:
 
+        logger.error(
+            "Invalid route response: %s",
+            route
+        )
+
         raise ValueError(
-            f"Invalid route response: {state.route_response}"
+            f"Invalid route response: {route}"
         )
 
 
@@ -214,7 +326,13 @@ def route_edge(state: DataAgentSchema) -> str:
 # Build Graph
 # ============================================================
 
-data_agent_graph = StateGraph(DataAgentSchema)
+logger.info(
+    "Building Data Agent graph"
+)
+
+data_agent_graph = StateGraph(
+    DataAgentSchema
+)
 
 
 data_agent_graph.add_node(
@@ -254,6 +372,7 @@ data_agent_graph.add_conditional_edges(
 
 
 # End after SQL / ETL
+
 data_agent_graph.add_edge(
     "sql_node",
     END
@@ -271,14 +390,20 @@ data_agent_graph.add_edge(
 
 data_agent = data_agent_graph.compile()
 
+logger.info(
+    "Data Agent graph compiled successfully"
+)
+
 
 # ============================================================
-# Test
+# Standalone Test
 # ============================================================
 
 if __name__ == "__main__":
 
-    logger.info("Data Agent started")
+    logger.info(
+        "Starting Data Agent standalone test"
+    )
 
     try:
 
@@ -293,11 +418,14 @@ if __name__ == "__main__":
                         )
                     )
                 ],
+
                 "route_response": "",
             }
         )
 
-        logger.info("Data Agent completed")
+        logger.info(
+            "Data Agent standalone test completed"
+        )
 
         print("\n")
         print("=" * 70)
@@ -305,9 +433,19 @@ if __name__ == "__main__":
         print("=" * 70)
 
         for message in response["messages"]:
-            if hasattr(message, "content") and message.content:
+
+            if hasattr(
+                message,
+                "content"
+            ) and message.content:
+
                 print(message.content)
 
     except Exception as e:
 
-        logger.error("Data Agent failed: %s", e)
+        logger.error(
+            "Data Agent standalone test failed: %s",
+            e
+        )
+
+        raise

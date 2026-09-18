@@ -58,3 +58,7 @@
 2026-09-17 21:11:03,593 | INFO | utils.llm_pick | LLM initialized successfully: gemini-3.7-flash
 2026-09-17 21:11:03,595 | INFO | google_genai.models | AFC is enabled with max remote calls: 10.
 2026-09-17 21:11:38,952 | INFO | google_genai._api_client | Retrying google.genai._api_client.BaseApiClient._request_once in 1.13 seconds as it raised ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}.
+2026-09-17 21:11:46,804 | INFO | google_genai._api_client | Retrying google.genai._api_client.BaseApiClient._request_once in 2.86 seconds as it raised ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}.
+2026-09-17 21:11:54,766 | INFO | google_genai.models | AFC is enabled with max remote calls: 10.
+2026-09-17 21:11:55,890 | INFO | __main__ | Final SQL response generated successfully
+2026-09-17 21:11:55,893 | INFO | __main__ | SQL Analyst standalone test completed
