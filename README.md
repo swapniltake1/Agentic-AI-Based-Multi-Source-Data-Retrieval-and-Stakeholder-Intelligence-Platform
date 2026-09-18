@@ -34,6 +34,8 @@ The current repository includes:
 
 The project is organized into a few focused modules:
 
+<img width="1661" height="717" alt="agentic_ai" src="https://github.com/user-attachments/assets/326ae6ee-aa78-4f0b-81c0-dfb41f34da96" />
+
 - [main.py](main.py): current starter entry point; the individual agent graphs are currently run from their own modules.
 - [agents/sql_analyst.py](agents/sql_analyst.py): SQL analyst LangGraph workflow for question curation, schema-aware SQL generation, safety validation, execution, and answer generation.
 - [agents/etl_analyst.py](agents/etl_analyst.py): ETL analyst LangGraph workflow that selects extraction and transformation tools based on the user's request.
