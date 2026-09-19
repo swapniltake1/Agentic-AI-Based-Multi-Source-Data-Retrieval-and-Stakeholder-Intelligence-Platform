@@ -72,12 +72,14 @@ MODEL_CONFIG: dict[ModelTier, dict[str, Any]] = {
     },
 
     ModelTier.MEDIUM: {
-        "model": "gemini-3.7-flash",
+        "model": "gemini-3.5-flash-lite",
+       # "model": "gemini-3.7-flash",
         "reasoning_effort": "low",
     },
 
     ModelTier.HIGH: {
-        "model": "gemini-3.8-flash",
+        "model": "gemini-3.5-flash-lite",
+        #"model": "gemini-3.8-flash",
         "reasoning_effort": "medium",
     },
 }
