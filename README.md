@@ -50,7 +50,7 @@ The current repository includes:
 
 The project is organized into a few focused modules:
 
-<img width="1661" height="717" alt="agentic_ai" src="https://github.com/user-attachments/assets/326ae6ee-aa78-4f0b-81c0-dfb41f34da96" />
+<img width="1661" height="717" alt="agentic_ai" src="https://github.com/user-attachments/assets/2b1b6551-ca50-4b05-9c74-5defbc122f5b" />
 <img width="1661" height="717" alt="Board (1)" src="https://github.com/user-attachments/assets/53fa45c7-48ba-426e-b0f6-ba849145a5be" />
 
 
