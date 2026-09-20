@@ -456,4 +456,4 @@ flowchart LR
 
 ## License
 
-This project does not currently include a license file. If you plan to distribute it publicly, add an appropriate open-source license.
+This project does not currently include a license file.
