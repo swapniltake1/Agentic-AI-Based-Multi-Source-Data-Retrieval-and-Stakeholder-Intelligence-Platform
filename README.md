@@ -1,4 +1,4 @@
-# Agentic AI-Based Multi-Source Data Retrieval and Stakeholder Intelligence Platform
+# Agentic Data Intelligence Platform
 
 A Python-based, agent-driven data intelligence platform for turning natural-language questions into actionable results across SQL analytics and ETL workflows. The system combines LLM-based reasoning, LangGraph orchestration, deterministic SQL safety validation, PostgreSQL schema introspection, API/file-based ETL tools, centralized logging, and a Streamlit chat interface.
 
@@ -58,20 +58,6 @@ flowchart LR
     S --> LOG
     E --> LOG
     UI --> LOG
-
-    style U fill:#dbeafe,stroke:#333,stroke-width:1px
-    style UI fill:#bbf,stroke:#333,stroke-width:1px
-    style P fill:#c7d2fe,stroke:#333,stroke-width:1px
-    style R fill:#fde68a,stroke:#333,stroke-width:1px
-    style S fill:#e0e7ff,stroke:#333,stroke-width:1px
-    style E fill:#ffedd5,stroke:#333,stroke-width:1px
-    style Q fill:#fff7ed,stroke:#333,stroke-width:1px
-    style J fill:#fef3c7,stroke:#333,stroke-width:1px
-    style DB fill:#dbeafe,stroke:#333,stroke-width:1px
-    style API fill:#dcfce7,stroke:#333,stroke-width:1px
-    style FILE fill:#dcfce7,stroke:#333,stroke-width:1px
-    style LLM fill:#dfd,stroke:#333,stroke-width:1px
-    style LOG fill:#fefce8,stroke:#333,stroke-width:1px
 ```
 
 ### Multi-Agent Routing
@@ -88,17 +74,6 @@ flowchart TD
     G --> I["Parent State"]
     H --> I
     I --> J["Streamlit Response"]
-
-    style A fill:#dbeafe
-    style B fill:#bbf
-    style C fill:#c7d2fe
-    style D fill:#fde68a
-    style E fill:#e0e7ff
-    style F fill:#ffedd5
-    style G fill:#dfd
-    style H fill:#dfd
-    style I fill:#eef2ff
-    style J fill:#dcfce7
 ```
 
 ### SQL Analyst Guarded Workflow
@@ -118,20 +93,6 @@ flowchart TD
     J --> K["PostgreSQL Execution"]
     K --> L["Result Interpretation"]
     L --> M["Stakeholder Answer"]
-
-    style A fill:#dbeafe
-    style B fill:#e0e7ff
-    style C fill:#c7d2fe
-    style D fill:#bbf
-    style E fill:#fff7ed
-    style F fill:#fde68a
-    style G fill:#fee2e2
-    style H fill:#fef3c7
-    style I fill:#fde68a
-    style J fill:#ffedd5
-    style K fill:#dbeafe
-    style L fill:#e0e7ff
-    style M fill:#dcfce7
 ```
 
 ### ETL Analyst Workflow
@@ -149,17 +110,6 @@ flowchart TD
     G --> H
     H --> I["LLM Response Synthesis"]
     I --> J["Final ETL Result"]
-
-    style A fill:#dbeafe
-    style B fill:#ffedd5
-    style C fill:#c7d2fe
-    style D fill:#fde68a
-    style E fill:#dcfce7
-    style F fill:#dcfce7
-    style G fill:#dcfce7
-    style H fill:#e0e7ff
-    style I fill:#bbf
-    style J fill:#dfd
 ```
 
 ### Observability Flow
@@ -177,15 +127,6 @@ flowchart LR
     DB --> LOG
     ETL --> LOG
     LOG --> OPS["Diagnostics / Troubleshooting"]
-
-    style UI fill:#dbeafe
-    style APP fill:#bbf
-    style AGENTS fill:#e0e7ff
-    style MODEL fill:#dfd
-    style DB fill:#dbeafe
-    style ETL fill:#dcfce7
-    style LOG fill:#fef3c7
-    style OPS fill:#fff7ed
 ```
 
 ### Architecture Notes
@@ -444,14 +385,6 @@ flowchart LR
     D --> E["Authentication and API Layer"]
     E --> F["Observability and Governance"]
     F --> G["Production Stakeholder Intelligence Platform"]
-
-    style A fill:#dbeafe
-    style B fill:#e0e7ff
-    style C fill:#fff7ed
-    style D fill:#fde68a
-    style E fill:#ffedd5
-    style F fill:#c7d2fe
-    style G fill:#dfd
 ```
 
 ## License
