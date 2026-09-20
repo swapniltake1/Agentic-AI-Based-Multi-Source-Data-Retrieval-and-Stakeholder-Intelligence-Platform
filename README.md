@@ -1,34 +1,50 @@
 # Agentic AI-Based Multi-Source Data Retrieval and Stakeholder Intelligence Platform
 
-A Python-based, agent-driven data intelligence project for turning natural-language questions into safe SQL queries against a PostgreSQL database. The system blends LLM-based reasoning with rule-based SQL validation, schema introspection, and a structured data pipeline to support stakeholder intelligence workflows.
+A Python-based, agent-driven data intelligence platform for turning natural-language questions into actionable results across SQL analytics and ETL workflows. The system combines LLM-based reasoning, LangGraph orchestration, deterministic SQL safety validation, PostgreSQL schema introspection, API/file-based ETL tools, centralized logging, and a Streamlit chat interface.
 
 ## Overview
 
-This project is designed to help users ask business questions in plain English and retrieve insights from a structured transportation and payments dataset. The system attempts to:
+This project is designed to help users interact with transportation and payments data using natural language instead of writing SQL or manually coordinating ETL steps.
 
-- interpret a user request using an LLM,
-- generate a PostgreSQL query from a database schema,
-- validate that the SQL is read-only and safe to execute,
-- run the approved query against a PostgreSQL instance,
-- return a final answer grounded in the database results.
+The platform currently provides two specialist workflows:
+
+- **SQL Analyst** — interprets a business question, uses PostgreSQL schema metadata and sample data to generate SQL, validates that the query is safe and read-only, executes the approved query, and produces a final answer.
+- **ETL Analyst** — selects extraction and transformation tools for API/file workflows and returns the result to the agent.
+- **Data Agent / Parent Router** — classifies an incoming request as `sql` or `etl` and routes it to the appropriate specialist workflow.
+- **Streamlit UI** — provides a ChatGPT-style interface for interacting with the Data Agent, including chat history, suggested questions, analyst/model metadata, model health checks, and user-friendly error handling.
+- **Centralized logging** — application activity is written to both the console and a rotating `logs/app.log` file.
 
 The current repository includes:
 
-- agent logic for SQL generation and safety review,
-- an ETL agent with extraction, transformation, and loading tools,
-- PostgreSQL database setup and CSV ingestion scripts,
-- a schema model used for agent state tracking,
-- Gemini-based model selection and API configuration.
+- parent-agent routing with LangGraph,
+- specialist SQL and ETL agents,
+- deterministic SQL safety validation and an additional LLM safety-judge layer,
+- PostgreSQL connection and schema inspection utilities,
+- CSV-based database loading,
+- API extraction and Pandas-based transformation tools,
+- centralized Gemini model configuration with fallback and retry support,
+- structured Pydantic state models,
+- a Streamlit frontend for end-user interaction.
 
 ## Key Features
 
 - Natural-language-to-SQL workflow
-- Deterministic SQL safety checks before execution
-- LLM judge layer to assess query safety
-- PostgreSQL schema introspection and sample data extraction
-- CSV-driven database population for a rides, payments, ratings, users, and vehicles dataset
-- API extraction and Pandas-based transformation tools for ETL workflows
-- Structured Pydantic agent state models for orchestration
+- Parent agent that routes requests to SQL or ETL specialists
+- Deterministic read-only SQL safety validation before execution
+- Structured LLM judge for an additional SQL safety review
+- PostgreSQL schema introspection and sample-data context
+- CSV-driven PostgreSQL database population
+- API extraction and Pandas transformation tools for ETL workflows
+- Gemini model tiers with centralized configuration
+- Model fallback handling for unavailable/rate-limited models
+- Retry handling for temporary service/server failures
+- Streamlit chat interface with conversation history
+- Suggested business questions from the welcome screen
+- Live model status checks for configured Gemini tiers
+- Response metadata showing analyst, model tier, and execution time
+- Safe frontend error messages while detailed errors are retained in logs
+- Centralized rotating file logging for application diagnostics
+- Structured Pydantic agent state models
 
 ## Architecture
 
@@ -36,14 +52,18 @@ The project is organized into a few focused modules:
 
 <img width="1661" height="717" alt="agentic_ai" src="https://github.com/user-attachments/assets/326ae6ee-aa78-4f0b-81c0-dfb41f34da96" />
 
-- [main.py](main.py): current starter entry point; the individual agent graphs are currently run from their own modules.
-- [agents/sql_analyst.py](agents/sql_analyst.py): SQL analyst LangGraph workflow for question curation, schema-aware SQL generation, safety validation, execution, and answer generation.
+- [main.py](main.py): lightweight application entry point that initializes logging and confirms the data intelligence application has started.
+- [app.py](app.py): Streamlit frontend providing the chat experience, model status panel, suggested questions, response metadata, and request/error handling.
+- [agents/data_agent.py](agents/data_agent.py): parent LangGraph workflow that classifies each request and routes it to the SQL or ETL specialist.
+- [agents/sql_analyst.py](agents/sql_analyst.py): SQL analyst LangGraph workflow for question curation, schema-aware SQL generation, safety validation, execution, and final answer generation.
 - [agents/etl_analyst.py](agents/etl_analyst.py): ETL analyst LangGraph workflow that selects extraction and transformation tools based on the user's request.
 - [utils/database.py](utils/database.py): PostgreSQL connection utilities and schema inspection helpers.
+- [utils/etl_tools.py](utils/etl_tools.py): ETL extraction/transformation utilities, including API extraction and Pandas-based file processing.
 - [utils/feed_db.py](utils/feed_db.py): creates the PostgreSQL schema and loads CSV files into the database.
-- [utils/llm_pick.py](utils/llm_pick.py): selects the Gemini LLM model tier and resolves API credentials.
-- [models/schema.py](models/schema.py): Pydantic schemas for agent state and validation.
-- [data/](data/): source CSV files used to populate the database.
+- [utils/llm_pick.py](utils/llm_pick.py): Gemini model configuration, model-tier selection, API-key resolution, fallback handling, retry handling, and response-content extraction.
+- [models/schema.py](models/schema.py): Pydantic schemas used for routing and agent state.
+- [logging_config.py](logging_config.py): centralized console and rotating-file logging configuration.
+- [data/load/](data/load/): CSV files used to populate the PostgreSQL database.
 
 ### Current SQL Analyst Graph
 
@@ -51,24 +71,97 @@ The SQL analyst follows a guarded read-only workflow. Unsafe queries are cancele
 
 ![SQL analyst graph](sql_analyst_graph.png)
 
-The generated graph is also available as [sql_analyst_graph.png](sql_analyst_graph.png). The ETL graph is generated as [etl_analyst_graph.png](etl_analyst_graph.png) when the ETL module's graph visualization block is run.
+The generated graph is also available as [sql_analyst_graph.png](sql_analyst_graph.png). The ETL graph is available as [etl_analyst_graph.png](etl_analyst_graph.png), and the parent Data Agent graph is available as [data_agent_graph.png](data_agent_graph.png).
 
-### Planned Parent Agent
+### Current Parent Data Agent
 
-The next orchestration layer will be a parent agent responsible for deciding which specialist workflow should run:
+The parent agent is now implemented and acts as the orchestration layer for the specialist workflows:
 
 ```text
 User question
-	|
-	v
-Parent agent / router
-	|
-	+--> SQL analyst agent --> safe SQL execution --> answer
-	|
-	+--> ETL analyst agent --> extract/transform/load --> result
+    |
+    v
+Data Agent / Router
+    |
+    +--> SQL Analyst --> safe SQL execution --> final answer
+    |
+    +--> ETL Analyst --> extract / transform --> final result
 ```
 
-The parent agent is planned work and is not wired into `main.py` yet. It will provide the single entry point for routing stakeholder questions to the SQL or ETL specialist while preserving each specialist's existing safety and tool boundaries.
+The router uses structured LLM output to classify the request as `sql` or `etl`. The selected specialist is then invoked and its final response is returned to the parent state.
+
+## Streamlit User Interface
+
+The repository now includes a Streamlit-based chat interface in [app.py](app.py).
+
+The UI provides:
+
+- ChatGPT-style conversation flow using Streamlit chat components
+- New Chat control with session-based chat history
+- Suggested questions for common database-analysis scenarios
+- SQL Analyst and ETL Analyst capability cards
+- Gemini model status for LOW, MEDIUM, and HIGH tiers
+- A **Test All Models** control that sends a real test request to each configured model
+- Response metadata such as analyst, model tier, and execution duration
+- Friendly user-facing error messages while technical details are written to logs
+- A visible Streamlit toolbar with the Deploy action hidden
+- Responsive wide layout and custom styling for the application shell
+
+Run the UI with:
+
+```bash
+streamlit run app.py
+```
+
+> **Note:** the Data Agent currently uses the configured MEDIUM model tier for routing. The model-status panel can test all configured tiers independently.
+
+## Gemini Model Handling
+
+Gemini configuration is centralized in [utils/llm_pick.py](utils/llm_pick.py).
+
+The application defines three logical tiers:
+
+- `LOW`
+- `MEDIUM`
+- `HIGH`
+
+Each tier maps to a configured Gemini model and reasoning-effort setting. The LLM factory supports:
+
+- centralized model configuration,
+- `GEMINI_API_KEY` with `GOOGLE_API_KEY` fallback,
+- lower-tier fallback models,
+- structured-output support,
+- tool-enabled LLMs,
+- retries for temporary service/server errors,
+- fallback handling for rate limits, quota exhaustion, unavailable models, and related API failures.
+
+Keeping model selection in one module makes it easier to change model configuration without modifying the individual agents.
+
+## Logging and Observability
+
+The application now uses centralized logging through [logging_config.py](logging_config.py).
+
+Logging is configured with:
+
+- console output,
+- rotating file output at `logs/app.log`,
+- a 5 MB file-size threshold,
+- up to 3 rotated backup files,
+- a consistent timestamp / level / logger / message format,
+- reduced log verbosity for noisy third-party libraries.
+
+The application and agent modules log key lifecycle events such as:
+
+- application startup,
+- router initialization and route selection,
+- agent execution start/completion,
+- model initialization and fallback configuration,
+- model health tests,
+- SQL/ETL execution failures,
+- response extraction,
+- frontend request failures.
+
+Sensitive API credentials are not written to the application logs.
 
 ## Data Model
 
@@ -87,38 +180,56 @@ These tables support queries around rider behavior, driver activity, trip perfor
 - Python 3.12+
 - PostgreSQL
 - psycopg2
-- LangChain + LangGraph
+- LangChain
+- LangGraph
 - Google Gemini via LangChain Google GenAI
+- Streamlit
+- Pandas
+- Requests
 - Pydantic
 - python-dotenv
+- Rotating file logging with Python `logging`
 
 ## Project Structure
 
 ```text
 .
 ├── agents/
+│   ├── __init__.py
+│   ├── data_agent.py
 │   ├── etl_analyst.py
 │   ├── scratch.py
 │   └── sql_analyst.py
 ├── data/
-│   ├── payments.csv
-│   ├── ratings.csv
-│   ├── rides.csv
-│   ├── users.csv
-│   └── vehicles.csv
+│   └── load/
+│       ├── payments.csv
+│       ├── ratings.csv
+│       ├── rides.csv
+│       ├── users.csv
+│       └── vehicles.csv
 ├── models/
+│   ├── __init__.py
 │   └── schema.py
 ├── utils/
+│   ├── data/
+│   │   └── extract/
+│   │       └── <generated extraction files>
 │   ├── database.py
 │   ├── etl_tools.py
 │   ├── feed_db.py
 │   └── llm_pick.py
-├── .env
+├── logs/
+│   └── app.log
+├── app.py
+├── logging_config.py
 ├── main.py
 ├── pyproject.toml
 ├── README.md
 ├── schema_info.txt
-└── ...
+├── data_agent_graph.png
+├── etl_analyst_graph.png
+├── sql_analyst_graph.png
+└── uv.lock
 ```
 
 ## Prerequisites
@@ -141,6 +252,7 @@ DB_NAME=your_database_name
 DB_USER=your_postgres_user
 DB_PASSWORD=your_postgres_password
 GEMINI_API_KEY=your_gemini_api_key
+
 # Optional fallback
 # GOOGLE_API_KEY=your_google_api_key
 ```
@@ -155,11 +267,7 @@ From the project root, install dependencies:
 python -m pip install -e .
 ```
 
-If the environment is not configured as an editable install, you may also install the dependencies listed in [pyproject.toml](pyproject.toml):
-
-```bash
-python -m pip install google-api-core ipython langchain-google-genai psycopg2-binary pydantic python-dotenv
-```
+The primary dependency definition is maintained in [pyproject.toml](pyproject.toml). The repository also contains [uv.lock](uv.lock) for reproducible dependency resolution when using `uv`.
 
 ## Database Setup
 
@@ -172,48 +280,82 @@ python utils/feed_db.py
 This script will:
 
 - create the required tables,
-- insert data from the CSV files in [data/](data/),
+- insert data from the CSV files in [data/load/](data/load/),
 - validate row counts,
-- exit after committing the transactions.
+- commit the database changes.
 
 ## Running the Project
 
-The top-level runtime entry point is still minimal:
+### Start the Streamlit application
+
+For the user-facing application:
 
 ```bash
-python main.py
+streamlit run app.py
 ```
 
-To run the SQL analyst graph directly, configure PostgreSQL and the Gemini API key first, then run:
+### Run the parent Data Agent directly
+
+To execute the parent router and specialist agents without Streamlit:
+
+```bash
+python agents/data_agent.py
+```
+
+### Run the SQL Analyst directly
+
+Configure PostgreSQL and the Gemini API key first, then run:
 
 ```bash
 python agents/sql_analyst.py
 ```
 
-To run the ETL analyst graph directly:
+### Run the ETL Analyst directly
+
+Run:
 
 ```bash
 python agents/etl_analyst.py
 ```
 
-Both agent modules currently include executable examples under their `__main__` blocks. They also generate LangGraph PNG visualizations when the optional visualization code runs.
+### Run the lightweight application entry point
+
+```bash
+python main.py
+```
+
+The specialist and parent-agent modules include executable examples under their `__main__` blocks.
 
 ## How the Agent Workflow Works
 
-1. A user asks a business question in natural language.
-2. The SQL analyst agent curates and clarifies that question.
-3. A prompt is built using schema metadata and sample data from PostgreSQL.
-4. An LLM generates one candidate SQL query.
+### End-to-end routing flow
+
+1. A user submits a business or data-engineering request through the Streamlit UI.
+2. [agents/data_agent.py](agents/data_agent.py) receives the request.
+3. The parent router uses structured LLM output to classify the request as `sql` or `etl`.
+4. The corresponding specialist workflow is invoked.
+5. The specialist returns a final AI-generated response to the parent state.
+6. The Streamlit layer extracts the final response and displays it with lightweight execution metadata.
+
+### SQL Analyst flow
+
+1. The user asks a business question in natural language.
+2. The SQL analyst agent curates and clarifies the question.
+3. A prompt is built using PostgreSQL schema metadata and sample data.
+4. An LLM generates a candidate SQL query.
 5. A deterministic safety layer blocks dangerous operations such as `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, and other non-read-only actions.
 6. A structured LLM judge reviews queries that pass the deterministic checks.
-7. Approved queries are checked again immediately before execution, run against PostgreSQL, and summarized into the final answer.
+7. The approved query is checked again immediately before execution.
+8. PostgreSQL executes the query.
+9. The results are converted into a final stakeholder-facing answer.
 
-The ETL analyst uses a separate tool-calling graph:
+### ETL Analyst flow
 
 1. The LLM receives the user's ETL request and conversation state.
-2. It selects the extraction or transformation tool when needed.
-3. The tool result is returned to the LLM for the next step.
-4. The graph ends after the requested operation is completed.
+2. It selects an available extraction or transformation tool when required.
+3. The selected tool executes the requested operation.
+4. The tool result is returned to the LLM.
+5. The ETL workflow returns the final result to the parent Data Agent.
 
 ## Security Notes
 
@@ -226,16 +368,38 @@ This project intentionally enforces read-only SQL safety checks. The SQL validat
 - dangerous PostgreSQL functions,
 - SQL comments used to hide malicious logic.
 
-This is a useful pattern for building safe LLM-powered database analytics systems.
+The ETL code-execution utility currently uses Python `exec()` for transformation execution. This path is **not production-safe for untrusted or LLM-generated code** and should be isolated or sandboxed before production deployment.
+
+Frontend exceptions are logged with technical details, while the UI returns a generic failure message to reduce exposure of internal implementation details.
 
 ## Current Status
 
-This is a functional starter project with core database and specialist-agent infrastructure, but it still requires integration work depending on your end-user workflow. In particular:
+The platform now includes the core multi-agent orchestration and a functional user-facing Streamlit application.
 
-- the app entry point is still minimal,
-- the SQL and ETL agents are implemented independently but are not yet routed through a parent agent,
-- the agent logic is modular but not yet fully exposed through a user-facing interface,
-- the database connection depends on an existing PostgreSQL instance and `.env` configuration.
+### Implemented
+
+- SQL Analyst LangGraph workflow
+- ETL Analyst LangGraph workflow
+- Parent Data Agent routing between SQL and ETL
+- PostgreSQL schema inspection and CSV loading
+- Deterministic SQL safety validation
+- LLM-based SQL safety review
+- Gemini model-tier configuration
+- Model fallback and retry handling
+- Streamlit chat interface
+- Suggested questions and new-chat session handling
+- Model health testing from the UI
+- Response metadata for analyst/model/execution time
+- Centralized application logging with rotating file output
+- User-facing error handling that keeps detailed diagnostics in logs
+
+### Remaining work
+
+- Expand the parent router with more specialist agents as the platform grows
+- Strengthen ETL code execution with a secure sandbox
+- Add automated unit/integration tests for routing, SQL safety, ETL tools, and database validation
+- Add production-grade API deployment and authentication
+- Add a stakeholder dashboard/reporting layer
 
 ## License
 
@@ -243,12 +407,4 @@ This project does not currently include a license file. If you plan to share or 
 
 ## Contact / Next Steps
 
-If you want to extend this project further, the most valuable next steps are:
-
-- add a command-line application or web interface,
-- add the parent agent that routes each request to the SQL or ETL analyst,
-- expose the SQL analyst as an end-to-end API,
-- create a proper dashboard or stakeholder reporting layer,
-- expand the ETL pipeline and analytics agents,
-- add automated tests for SQL safety and data validation.
-
+The current architecture is designed to grow from a two-specialist agent platform into a broader stakeholder intelligence system. Natural extensions include additional analytics agents, production APIs, observability, testing, authentication, and dashboard/reporting capabilities.
