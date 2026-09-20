@@ -51,6 +51,8 @@ The current repository includes:
 The project is organized into a few focused modules:
 
 <img width="1661" height="717" alt="agentic_ai" src="https://github.com/user-attachments/assets/326ae6ee-aa78-4f0b-81c0-dfb41f34da96" />
+<img width="1661" height="717" alt="Board (1)" src="https://github.com/user-attachments/assets/53fa45c7-48ba-426e-b0f6-ba849145a5be" />
+
 
 - [main.py](main.py): lightweight application entry point that initializes logging and confirms the data intelligence application has started.
 - [app.py](app.py): Streamlit frontend providing the chat experience, model status panel, suggested questions, response metadata, and request/error handling.
